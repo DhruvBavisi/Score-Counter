@@ -60,6 +60,7 @@ export default function NewMatch() {
   const openNumpad = (row: number, col: number) => {
     setCurrentCell({ row, col });
     setNumpadValue(scores[row][col].toString());
+    scrollActiveCellIntoView(row, col);
   };
 
   const handleNumpadChange = (next: string) => {
@@ -70,6 +71,20 @@ export default function NewMatch() {
     const updated = [...scores];
     updated[currentCell.row][currentCell.col] = val;
     setScores(updated);
+  };
+
+  const scrollActiveCellIntoView = (row: number, col: number) => {
+    const container = scrollRef.current;
+    const cell = document.querySelector(`button[data-row="${row}"][data-col="${col}"]`) as HTMLButtonElement | null;
+    if (!container || !cell) return;
+    const containerRect = container.getBoundingClientRect();
+    const cellRect = cell.getBoundingClientRect();
+    const padding = 40;
+    if (cellRect.right > containerRect.right - padding) {
+      container.scrollLeft += cellRect.right - (containerRect.right - padding);
+    } else if (cellRect.left < containerRect.left + padding) {
+      container.scrollLeft -= (containerRect.left + padding) - cellRect.left;
+    }
   };
 
   const moveCursor = (dir: 'up' | 'down' | 'left' | 'right') => {
@@ -86,9 +101,11 @@ export default function NewMatch() {
     } else if (dir === 'left' && col > 0) {
       setCurrentCell({ row, col: col - 1 });
       setNumpadValue(scores[row][col - 1].toString());
+      scrollActiveCellIntoView(row, col - 1);
     } else if (dir === 'right' && col < maxCol) {
       setCurrentCell({ row, col: col + 1 });
       setNumpadValue(scores[row][col + 1].toString());
+      scrollActiveCellIntoView(row, col + 1);
     }
   };
 
@@ -108,9 +125,11 @@ export default function NewMatch() {
     if (col < numPlayers - 1) {
       setCurrentCell({ row, col: col + 1 });
       setNumpadValue(newScores[row][col + 1].toString());
+      scrollActiveCellIntoView(row, col + 1);
     } else if (row < newScores.length - 1) {
       setCurrentCell({ row: row + 1, col: 0 });
       setNumpadValue(newScores[row + 1][0].toString());
+      scrollActiveCellIntoView(row + 1, 0);
     } else {
       setCurrentCell(null);
     }
@@ -367,6 +386,8 @@ export default function NewMatch() {
                         onClick={() => !gameFinished && openNumpad(rowIndex, colIndex)}
                         disabled={gameFinished}
                         className={`w-full h-12 rounded-xl font-display font-bold text-lg transition-all bg-secondary text-foreground hover:bg-secondary/80 ${gameFinished ? 'cursor-default' : ''} ${currentCell?.col === colIndex && currentCell?.row === rowIndex ? 'ring-2 ring-primary/50' : ''}`}
+                        data-row={rowIndex}
+                        data-col={colIndex}
                       >
                         {score}
                       </button>
@@ -425,19 +446,19 @@ export default function NewMatch() {
                   className={`flex items-center gap-3 p-4 rounded-2xl transition-all border-2 shadow ${
                     rank === 1
                       ? 'bg-gradient-to-br from-yellow-200/40 via-amber-100/25 to-yellow-100/20 border-[hsl(45,100%,55%)] shadow-[0_4px_12px_-8px_hsl(45,100%,55%/0.25)]'
-                      : rank === 2
+                    : rank === 2
                       ? 'bg-gradient-to-br from-zinc-200/40 via-zinc-100/25 to-white/20 border-[hsl(0,0%,70%)] shadow-[0_4px_12px_-8px_hsl(0,0%,70%/0.2)]'
-                      : rank === 3
+                    : rank === 3
                       ? 'bg-gradient-to-br from-amber-200/30 via-orange-200/20 to-amber-100/15 border-[hsl(30,70%,45%)] shadow-[0_4px_12px_-8px_hsl(30,70%,45%/0.2)]'
-                      : 'bg-secondary/50 border-border'
+                    : 'bg-secondary/50 border-border'
                   }`}
                 >
                   {getRankBadge(rank)}
                   <PlayerAvatar name={player.name} size="sm" isWinner={rank === 1} />
-                  <span className={`font-semibold flex-1 ${rank === 1 ? 'text-yellow-700' : rank === 2 ? 'text-gray-700' : rank === 3 ? 'text-amber-700' : 'text-foreground'}`}>
+                  <span className={`font-semibold flex-1 ${rank === 1 ? 'text-yellow-700' : rank === 2 ? 'text-white' : rank === 3 ? 'text-amber-700' : 'text-foreground'}`}>
                     {player.name}
                   </span>
-                  <span className={`font-display font-bold ${rank === 1 ? 'text-yellow-600' : rank === 2 ? 'text-gray-600' : rank === 3 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                  <span className={`font-display font-bold ${rank === 1 ? 'text-yellow-600' : rank === 2 ? 'text-white' : rank === 3 ? 'text-amber-600' : 'text-muted-foreground'}`}>
                     {total} pts
                   </span>
                 </div>
