@@ -61,6 +61,26 @@ export default function NewMatch() {
     setNumpadValue(scores[row][col].toString());
   };
 
+  const moveCursor = (dir: 'up' | 'down' | 'left' | 'right') => {
+    if (!currentCell) return;
+    const { row, col } = currentCell;
+    const maxRow = scores.length - 1;
+    const maxCol = selectedPlayers.length - 1;
+    if (dir === 'up' && row > 0) {
+      setCurrentCell({ row: row - 1, col });
+      setNumpadValue(scores[row - 1][col].toString());
+    } else if (dir === 'down' && row < maxRow) {
+      setCurrentCell({ row: row + 1, col });
+      setNumpadValue(scores[row + 1][col].toString());
+    } else if (dir === 'left' && col > 0) {
+      setCurrentCell({ row, col: col - 1 });
+      setNumpadValue(scores[row][col - 1].toString());
+    } else if (dir === 'right' && col < maxCol) {
+      setCurrentCell({ row, col: col + 1 });
+      setNumpadValue(scores[row][col + 1].toString());
+    }
+  };
+
   const handleNumpadEnter = () => {
     if (!currentCell) return;
 
@@ -113,6 +133,7 @@ export default function NewMatch() {
 
   const totals = calculateTotals();
   const winnerIndex = getWinnerIndex();
+  const extremeTotal = winnerRule === 'highest' ? Math.max(...totals) : Math.min(...totals);
   const rankings = useMemo(() => {
     if (!gameFinished) return [];
 
@@ -314,7 +335,9 @@ export default function NewMatch() {
                 {selectedPlayers.map((player, i) => (
                   <th
                     key={player.id}
-                    className={`p-2 text-center min-w-[80px] ${i === winnerIndex && gameFinished ? 'text-accent' : 'text-foreground'}`}
+                    className={`p-2 text-center min-w-[80px] ${
+                      i === winnerIndex && gameFinished ? 'text-accent' : currentCell?.col === i ? 'text-primary' : 'text-foreground'
+                    }`}
                   >
                     <div className="flex flex-col items-center gap-1">
                       {i === winnerIndex && gameFinished && <Crown className="w-4 h-4 crown-bounce text-accent" />}
@@ -327,7 +350,7 @@ export default function NewMatch() {
             </thead>
             <tbody>
               {scores.map((round, rowIndex) => (
-                <tr key={rowIndex}>
+                <tr key={rowIndex} className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''}`}>
                   <td className="p-2 text-sm text-muted-foreground">R{rowIndex + 1}</td>
                   {round.map((score, colIndex) => (
                     <td key={colIndex} className="p-1">
@@ -338,7 +361,7 @@ export default function NewMatch() {
                           colIndex === winnerIndex && gameFinished
                             ? 'bg-accent/20 text-accent border border-accent/30'
                             : 'bg-secondary text-foreground hover:bg-secondary/80'
-                        } ${gameFinished ? 'cursor-default' : ''}`}
+                        } ${gameFinished ? 'cursor-default' : ''} ${currentCell?.col === colIndex && currentCell?.row === rowIndex ? 'ring-2 ring-primary/50' : ''}`}
                       >
                         {score}
                       </button>
@@ -376,7 +399,7 @@ export default function NewMatch() {
                 {totals.map((total, i) => (
                   <td
                     key={i}
-                    className={`p-2 text-center font-display text-xl font-bold ${total === Math.max(...totals) ? 'text-red-600' : 'text-foreground'}`}
+                    className={`p-2 text-center font-display text-xl font-bold ${total === extremeTotal ? 'text-red-600' : 'text-foreground'}`}
                   >
                     {total}
                   </td>
@@ -394,13 +417,13 @@ export default function NewMatch() {
               {rankings.map(({ player, total, rank }) => (
                 <div
                   key={player.id}
-                  className={`flex items-center gap-3 p-4 rounded-2xl transition-all border-2 shadow-sm ${
+                  className={`flex items-center gap-3 p-4 rounded-2xl transition-all border-2 shadow ${
                     rank === 1
-                      ? 'bg-gradient-to-br from-yellow-200/40 via-amber-100/25 to-yellow-100/20 border-[hsl(45,100%,55%)] shadow-[0_6px_18px_-8px_hsl(45,100%,55%/0.35)]'
+                      ? 'bg-gradient-to-br from-yellow-200/40 via-amber-100/25 to-yellow-100/20 border-[hsl(45,100%,55%)] shadow-[0_4px_12px_-8px_hsl(45,100%,55%/0.25)]'
                       : rank === 2
-                      ? 'bg-gradient-to-br from-zinc-200/40 via-zinc-100/25 to-white/20 border-[hsl(0,0%,70%)] shadow-[0_6px_18px_-8px_hsl(0,0%,70%/0.3)]'
+                      ? 'bg-gradient-to-br from-zinc-200/40 via-zinc-100/25 to-white/20 border-[hsl(0,0%,70%)] shadow-[0_4px_12px_-8px_hsl(0,0%,70%/0.2)]'
                       : rank === 3
-                      ? 'bg-gradient-to-br from-amber-200/30 via-orange-200/20 to-amber-100/15 border-[hsl(30,70%,45%)] shadow-[0_6px_18px_-8px_hsl(30,70%,45%/0.3)]'
+                      ? 'bg-gradient-to-br from-amber-200/30 via-orange-200/20 to-amber-100/15 border-[hsl(30,70%,45%)] shadow-[0_4px_12px_-8px_hsl(30,70%,45%/0.2)]'
                       : 'bg-secondary/50 border-border'
                   }`}
                 >
@@ -443,6 +466,10 @@ export default function NewMatch() {
           onChange={setNumpadValue}
           onEnter={handleNumpadEnter}
           onClose={() => setCurrentCell(null)}
+          onMove={moveCursor}
+          rowIndex={currentCell.row}
+          colIndex={currentCell.col}
+          playerName={selectedPlayers[currentCell.col]?.name}
         />
       )}
     </div>

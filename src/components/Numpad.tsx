@@ -1,13 +1,17 @@
-import { X } from 'lucide-react';
+ 
 
 interface NumpadProps {
   value: string;
   onChange: (value: string) => void;
   onEnter: () => void;
   onClose: () => void;
+  onMove?: (dir: 'up' | 'down' | 'left' | 'right') => void;
+  rowIndex?: number;
+  colIndex?: number;
+  playerName?: string;
 }
 
-export function Numpad({ value, onChange, onEnter, onClose }: NumpadProps) {
+export function Numpad({ value, onChange, onEnter, onClose, onMove, rowIndex, colIndex, playerName }: NumpadProps) {
   const handleButton = (btn: string) => {
     if (btn === 'C') {
       onChange('');
@@ -39,20 +43,19 @@ export function Numpad({ value, onChange, onEnter, onClose }: NumpadProps) {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-transparent animate-fade-in pointer-events-none">
-      <div className="w-full max-w-sm sm:max-w-md md:max-w-lg glass-card rounded-t-3xl p-3 sm:p-4 pb-6 sm:pb-8 safe-bottom animate-slide-up pointer-events-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3 sm:mb-4">
-          <button
-            onClick={onClose}
-            className="p-2 rounded-full hover:bg-secondary transition-colors"
-          >
-            <X className="w-6 h-6 text-muted-foreground" />
-          </button>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-transparent animate-fade-in" onClick={onClose}>
+      <div className="w-full max-w-sm sm:max-w-md md:max-w-lg glass-card rounded-t-3xl p-3 sm:p-4 pb-4 sm:pb-6 mb-6 safe-bottom animate-slide-up" onClick={(e) => e.stopPropagation()}>
+        {/* Context + Value */}
+        <div className="flex items-center justify-between mb-2 sm:mb-3">
+          <div className="text-xs sm:text-sm text-muted-foreground">
+            {typeof rowIndex === 'number' && typeof colIndex === 'number' ? `R${rowIndex + 1} • C${colIndex + 1}${playerName ? ` • ${playerName}` : ''}` : ''}
+          </div>
           <div className="text-2xl sm:text-3xl font-display font-bold text-foreground min-w-[90px] sm:min-w-[100px] text-right">
             {value || '0'}
           </div>
         </div>
+
+        {/* (Navigation removed as requested) */}
 
         {/* Numpad Grid */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-2 sm:mb-3">
