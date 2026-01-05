@@ -23,6 +23,7 @@ export default function NewMatch() {
   const [numRounds, setNumRounds] = useState(5);
   const [selectedPlayers, setSelectedPlayers] = useState<Player[]>([]);
   const [newPlayerName, setNewPlayerName] = useState('');
+  const [matchName, setMatchName] = useState('');
 
   // Scoreboard state
   const [gameStarted, setGameStarted] = useState(false);
@@ -156,6 +157,7 @@ export default function NewMatch() {
       rounds: scores,
       totals,
       winnerRule,
+      matchName,
     });
     setGameFinished(true);
     toast.success('Game saved!');
@@ -219,6 +221,17 @@ export default function NewMatch() {
         </header>
 
         <main className="p-6 pb-32 page-enter space-y-8">
+          {/* Match Name */}
+          <section>
+            <h2 className="text-sm font-semibold text-muted-foreground mb-3">Match Name</h2>
+            <input
+              type="text"
+              value={matchName}
+              onChange={(e) => setMatchName(e.target.value)}
+              placeholder="Enter match name..."
+              className="w-full px-4 py-3 rounded-xl bg-secondary text-foreground placeholder:text-muted-foreground border border-border focus:border-primary focus:outline-none transition-colors"
+            />
+          </section>
           {/* Winner Rule */}
           <section>
             <h2 className="text-sm font-semibold text-muted-foreground mb-3">Winner Rule</h2>

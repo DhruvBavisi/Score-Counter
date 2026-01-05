@@ -12,6 +12,7 @@ export interface Game {
   rounds: number[][];
   totals: number[];
   winnerRule: 'highest' | 'lowest';
+  matchName?: string;
   createdAt: Date;
 }
 
