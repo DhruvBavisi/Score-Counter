@@ -76,7 +76,7 @@ export function Numpad({ value, onChange, onEnter, onClose, onMove, rowIndex, co
         }
       }}
     >
-      <div id="numpad-panel" className="w-full max-w-sm sm:max-w-md md:max-w-lg rounded-t-3xl p-4 sm:p-5 pb-8 sm:pb-10 safe-bottom animate-slide-up bg-card border border-border shadow-md" onClick={(e) => e.stopPropagation()}>
+      <div id="numpad-panel" className="w-full max-w-sm sm:max-w-md md:max-w-lg rounded-t-3xl p-4 sm:p-5   sm:pb-10 animate-slide-up bg-card border border-border shadow-md" onClick={(e) => e.stopPropagation()}>
         {/* Numpad Grid */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3 sm:mb-4">
           {buttons.flat().map((btn) => (

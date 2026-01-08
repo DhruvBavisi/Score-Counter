@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trophy, TrendingDown, Check, Plus, Crown, Medal, Play, ChevronDown } from 'lucide-react';
 import { useGame, Player } from '@/contexts/GameContext';
@@ -7,6 +7,8 @@ import { Numpad } from '@/components/Numpad';
 import { Confetti } from '@/components/Confetti';
 import { toast } from 'sonner';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 
 interface RankingPlayer {
   player: Player;
@@ -18,6 +20,9 @@ export default function NewMatch() {
   const navigate = useNavigate();
   const { players: allPlayers, addPlayer, addGame } = useGame();
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const lastRowRef = useRef<HTMLTableRowElement | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+
 
   // Setup state
   const [winnerRule, setWinnerRule] = useState<'highest' | 'lowest'>('highest');
@@ -35,6 +40,14 @@ export default function NewMatch() {
   const [numpadValue, setNumpadValue] = useState('');
   const [gameFinished, setGameFinished] = useState(false);
   const [inactivePlayers, setInactivePlayers] = useState<string[]>([]);
+  const [menuTarget, setMenuTarget] = useState<string | null>(null);
+  const toggleInactive = (id: string) =>
+    setInactivePlayers((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [scores.length]);
 
   const togglePlayer = (player: Player) => {
     if (selectedPlayers.find(p => p.id === player.id)) {
@@ -42,6 +55,20 @@ export default function NewMatch() {
     } else {
       setSelectedPlayers(prev => [...prev, player]);
     }
+  };
+
+  const removePlayer = (playerId: string) => {
+    const index = selectedPlayers.findIndex((p) => p.id === playerId);
+    if (index === -1) return;
+    setSelectedPlayers((prev) => prev.filter((p) => p.id !== playerId));
+    setScores((prev) => prev.map((round) => round.filter((_, i) => i !== index)));
+    setInactivePlayers((prev) => prev.filter((id) => id !== playerId));
+    setCurrentCell((prev) => {
+      if (!prev) return prev;
+      if (prev.col === index) return null;
+      if (prev.col > index) return { row: prev.row, col: prev.col - 1 };
+      return prev;
+    });
   };
 
   const handleAddNewPlayer = () => {
@@ -80,25 +107,47 @@ export default function NewMatch() {
     setScores(updated);
   };
 
-  const scrollActiveCellIntoView = (row: number, col: number) => {
+    const scrollActiveCellIntoView = (row: number, col: number) => {
     const container = scrollRef.current;
-    const cell = document.querySelector(`button[data-row="${row}"][data-col="${col}"]`) as HTMLButtonElement | null;
+    const cell = document.querySelector(
+      `button[data-row="${row}"][data-col="${col}"]`
+    ) as HTMLButtonElement | null;
+
     if (!container || !cell) return;
+
     const containerRect = container.getBoundingClientRect();
     const cellRect = cell.getBoundingClientRect();
-    const padding = 40;
+
+    const stickyColumnWidth = 64; // matches your "Round" column width
+    const padding = 24;
+
+    // Horizontal scroll — respect sticky column
     if (cellRect.right > containerRect.right - padding) {
       container.scrollLeft += cellRect.right - (containerRect.right - padding);
-    } else if (cellRect.left < containerRect.left + padding) {
-      container.scrollLeft -= (containerRect.left + padding) - cellRect.left;
+    } else if (cellRect.left < containerRect.left + stickyColumnWidth + padding) {
+      container.scrollLeft -=
+        containerRect.left + stickyColumnWidth + padding - cellRect.left;
     }
+
+    // Vertical scroll — respect header height
+    const headerHeight = 48;
     const panel = document.getElementById('numpad-panel') as HTMLDivElement | null;
     const panelHeight = panel?.offsetHeight || 300;
-    const bottomThreshold = window.innerHeight - panelHeight - 24;
+    const bottomThreshold = window.innerHeight - panelHeight - 16;
+
     if (cellRect.bottom > bottomThreshold) {
-      window.scrollBy({ top: cellRect.bottom - bottomThreshold, behavior: 'smooth' });
+      window.scrollBy({
+        top: cellRect.bottom - bottomThreshold,
+        behavior: 'smooth'
+      });
+    } else if (cellRect.top < headerHeight) {
+      window.scrollBy({
+        top: cellRect.top - headerHeight - 8,
+        behavior: 'smooth'
+      });
     }
   };
+
 
   const moveCursor = (dir: 'up' | 'down' | 'left' | 'right') => {
     if (!currentCell) return;
@@ -143,17 +192,29 @@ export default function NewMatch() {
     // Move to next cell
     const { row, col } = currentCell;
     const numPlayers = selectedPlayers.length;
-    if (col < numPlayers - 1) {
-      setCurrentCell({ row, col: col + 1 });
-      setNumpadValue(newScores[row][col + 1].toString());
-      scrollActiveCellIntoView(row, col + 1);
-    } else if (row < newScores.length - 1) {
-      setCurrentCell({ row: row + 1, col: 0 });
-      setNumpadValue(newScores[row + 1][0].toString());
-      scrollActiveCellIntoView(row + 1, 0);
-    } else {
-      setCurrentCell(null);
+    const isActive = (idx: number) => {
+      const id = selectedPlayers[idx]?.id;
+      return id ? !inactivePlayers.includes(id) : false;
+    };
+    for (let c = col + 1; c < numPlayers; c++) {
+      if (isActive(c)) {
+        setCurrentCell({ row, col: c });
+        setNumpadValue(newScores[row][c].toString());
+        scrollActiveCellIntoView(row, c);
+        return;
+      }
     }
+    for (let r = row + 1; r < newScores.length; r++) {
+      for (let c = 0; c < numPlayers; c++) {
+        if (isActive(c)) {
+          setCurrentCell({ row: r, col: c });
+          setNumpadValue(newScores[r][c].toString());
+          scrollActiveCellIntoView(r, c);
+          return;
+        }
+      }
+    }
+    setCurrentCell(null);
   };
 
   const calculateTotals = (): number[] => {
@@ -171,10 +232,13 @@ export default function NewMatch() {
   };
 
   const finishGame = () => {
-    const totals = calculateTotals();
+    const filteredRounds = scores.filter((round) => !round.every((v) => v === 0));
+    const totals = selectedPlayers.map((_, playerIndex) =>
+      filteredRounds.reduce((sum, round) => sum + (round[playerIndex] || 0), 0)
+    );
     addGame({
-      players: selectedPlayers.map(p => p.name),
-      rounds: scores,
+      players: selectedPlayers.map((p) => p.name),
+      rounds: filteredRounds,
       totals,
       winnerRule,
       matchName,
@@ -399,13 +463,13 @@ export default function NewMatch() {
         <h1 className="font-display text-lg font-bold text-foreground">Scoreboard</h1>
       </header>
 
-      <main className={`flex-1 p-6 page-enter space-y-6 ${currentCell ? 'pb-56' : 'pb-36'}`}>
+      <main className={`flex-1 p-6 page-enter space-y-6 ${currentCell ? 'pb-56' : 'pb-6'}`}>
         {/* Score Table */}
         <div className="overflow-auto -mx-6 px-0 pb-0 mobile-hide-scrollbar relative max-h-[70vh] bg-background" ref={scrollRef}>
           <table className="w-full border-separate min-w-max no-border-spacing">
             <thead className="sticky top-0 z-50 bg-background shadow-none">
               <tr>
-                <th className="p-2 text-center text-xs text-muted-foreground font-normal sticky left-0 top-0 z-50 bg-background border-b border-border border-r">Round</th>
+                <th className="p-2 text-center text-xs text-muted-foreground font-normal sticky left-0 top-0 z-[60] bg-background border-b border-border border-r">Round</th>
                 {selectedPlayers.map((player, i) => (
                   <th
                     key={player.id}
@@ -413,14 +477,90 @@ export default function NewMatch() {
                   >
                     <div className="flex flex-col items-center gap-1">
                       {i === winnerIndex && gameFinished && <Crown className="w-4 h-4 crown-bounce text-yellow-500" />}
-                      <PlayerAvatar name={player.name} size="sm" isWinner={i === winnerIndex && gameFinished} />
-                      <span className="text-xs font-medium truncate max-w-[70px]">{player.name}</span>
-                      <button
-                        onClick={() => setInactivePlayers((prev) => prev.includes(player.id) ? prev.filter(id => id !== player.id) : [...prev, player.id])}
-                        className={`mt-1 px-2 py-0.5 rounded-md text-xs border ${inactivePlayers.includes(player.id) ? 'bg-destructive/20 text-destructive border-destructive/40' : 'bg-secondary text-foreground border-border'}`}
-                      >
-                        {inactivePlayers.includes(player.id) ? 'Resume' : 'Stop'}
-                      </button>
+                      <PlayerAvatar
+                        name={player.name}
+                        size="sm"
+                        isWinner={i === winnerIndex && gameFinished}
+                        onMouseDown={() => {
+                          if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+                          longPressTimerRef.current = window.setTimeout(() => toggleInactive(player.id), 350);
+                        }}
+                        onMouseUp={() => {
+                          if (longPressTimerRef.current) {
+                            window.clearTimeout(longPressTimerRef.current);
+                            longPressTimerRef.current = null;
+                          }
+                        }}
+                        onMouseLeave={() => {
+                          if (longPressTimerRef.current) {
+                            window.clearTimeout(longPressTimerRef.current);
+                            longPressTimerRef.current = null;
+                          }
+                        }}
+                        onTouchStart={() => {
+                          if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+                          longPressTimerRef.current = window.setTimeout(() => toggleInactive(player.id), 350);
+                        }}
+                        onTouchEnd={() => {
+                          if (longPressTimerRef.current) {
+                            window.clearTimeout(longPressTimerRef.current);
+                            longPressTimerRef.current = null;
+                          }
+                        }}
+                      />
+                      <DropdownMenu open={menuTarget === player.id} onOpenChange={(open) => setMenuTarget(open ? player.id : null)}>
+                        <DropdownMenuTrigger asChild>
+                          <span
+                            className="text-xs font-medium truncate max-w-[70px]"
+                            onMouseDown={() => {
+                              if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+                              longPressTimerRef.current = window.setTimeout(() => toggleInactive(player.id), 350);
+                            }}
+                            onMouseUp={() => {
+                              if (longPressTimerRef.current) {
+                                window.clearTimeout(longPressTimerRef.current);
+                                longPressTimerRef.current = null;
+                              }
+                            }}
+                            onMouseLeave={() => {
+                              if (longPressTimerRef.current) {
+                                window.clearTimeout(longPressTimerRef.current);
+                                longPressTimerRef.current = null;
+                              }
+                            }}
+                            onTouchStart={() => {
+                              if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+                              longPressTimerRef.current = window.setTimeout(() => toggleInactive(player.id), 350);
+                            }}
+                            onTouchEnd={() => {
+                              if (longPressTimerRef.current) {
+                                window.clearTimeout(longPressTimerRef.current);
+                                longPressTimerRef.current = null;
+                              }
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              setMenuTarget(player.id);
+                            }}
+                            onClick={(e) => e.preventDefault()}
+                            onPointerDown={(e) => e.preventDefault()}
+                          >
+                            {player.name}
+                          </span>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              setInactivePlayers((prev) =>
+                                prev.includes(player.id) ? prev.filter((id) => id !== player.id) : [...prev, player.id],
+                              )
+                            }
+                          >
+                            {inactivePlayers.includes(player.id) ? 'Resume' : 'Stop'}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => removePlayer(player.id)}>Remove</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </th>
                 ))}
@@ -519,7 +659,7 @@ export default function NewMatch() {
 
       </main>
 
-      <div className="p-6 bg-gradient-to-t from-background to-transparent safe-bottom">
+      <div className="p-6 pt-0 pb-4 bg-gradient-to-t from-background to-transparent">
         {!gameFinished ? (
           <button
             onClick={finishGame}
@@ -579,50 +719,102 @@ function PlayerList({
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [sortedPlayers]);
-  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [openGroup, setOpenGroup] = useState<{ name: string; players: Player[] } | null>(null);
+  const [tempSelected, setTempSelected] = useState<string[]>([]);
 
   return (
-    <div className="space-y-4 max-h-[300px] overflow-y-auto">
-      {groups.map(([groupName, groupPlayers]) => (
-        <Collapsible
-          key={groupName}
-          open={!!open[groupName]}
-          onOpenChange={(v) => setOpen((prev) => ({ ...prev, [groupName]: v }))}
-        >
-          <CollapsibleTrigger asChild>
-            <button className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-secondary text-foreground hover:bg-secondary/80">
-              <span className="text-sm font-semibold">{groupName}</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{groupPlayers.length}</span>
-                <ChevronDown className={`w-4 h-4 text-muted-foreground ${open[groupName] ? 'rotate-180 transition-transform' : 'transition-transform'}`} />
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {groups.map(([groupName, groupPlayers]) => (
+          <button
+            key={groupName}
+            onClick={() => {
+              setOpenGroup({ name: groupName, players: groupPlayers });
+              const selectedOrder = selectedPlayers
+                .filter((p) => groupPlayers.some((gp) => gp.id === p.id))
+                .map((p) => p.id);
+              setTempSelected(selectedOrder);
+            }}
+            className="p-4 rounded-2xl border-2 transition-all bg-secondary text-foreground hover:bg-secondary/80 flex items-center justify-between"
+          >
+            <span className="text-sm font-semibold">{groupName}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{groupPlayers.length}</span>
+              {selectedPlayers.some((p) => groupPlayers.some((gp) => gp.id === p.id)) && (
+                <span className="text-xs px-2 py-0.5 rounded-md bg-primary/15 text-primary font-semibold">
+                  {
+                    selectedPlayers.filter((p) => groupPlayers.some((gp) => gp.id === p.id)).length
+                  }
+                </span>
+              )}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {openGroup && (
+        <Sheet open={!!openGroup} onOpenChange={() => setOpenGroup(null)}>
+          <SheetContent side="bottom" className="h-full p-0">
+            <div className="flex flex-col h-full bg-background">
+              <header className="p-4 border-b border-border">
+                <h3 className="font-display text-lg font-bold text-foreground">{openGroup.name}</h3>
+                <p className="text-sm text-muted-foreground">{openGroup.players.length} players</p>
+              </header>
+              <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                {openGroup.players.map((player) => {
+                  const index = tempSelected.indexOf(player.id);
+                  const isTempSelected = index !== -1;
+                  return (
+                    <button
+                      key={player.id}
+                      onClick={() => {
+                        setTempSelected((prev) => {
+                          const exists = prev.includes(player.id);
+                          if (exists) {
+                            return prev.filter((id) => id !== player.id);
+                          }
+                          return [...prev, player.id];
+                        });
+                      }}
+                      className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${
+                        isTempSelected ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50'
+                      }`}
+                    >
+                      <PlayerAvatar name={player.name} size="sm" />
+                      <span className="font-medium text-foreground">{player.name}</span>
+                      {isTempSelected && (
+                        <span className="ml-auto px-2 py-1 rounded-md bg-primary/15 text-primary font-bold text-sm">
+                          {index + 1}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="space-y-2 pt-2">
-            {groupPlayers.map((player) => {
-              const isSelected = selectedPlayers.some((p) => p.id === player.id);
-              const orderIndex = selectedPlayers.findIndex((p) => p.id === player.id);
-              return (
+              <div className="p-6 bg-gradient-to-t from-background to-transparent safe-bottom">
                 <button
-                  key={player.id}
-                  onClick={() => onToggle(player)}
-                  className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${
-                    isSelected ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50'
-                  }`}
+                  onClick={() => {
+                    const groupIds = new Set(openGroup.players.map((p) => p.id));
+                    const currentlySelectedIds = new Set(selectedPlayers.map((p) => p.id));
+                    const desiredSelectedIds = new Set(tempSelected);
+                    for (const player of openGroup.players) {
+                      const shouldBeSelected = desiredSelectedIds.has(player.id);
+                      const isSelectedNow = currentlySelectedIds.has(player.id);
+                      if (shouldBeSelected !== isSelectedNow) {
+                        onToggle(player);
+                      }
+                    }
+                    setOpenGroup(null);
+                  }}
+                  className="w-full py-4 rounded-2xl bg-gradient-primary text-primary-foreground font-display font-bold text-lg shadow-glow"
                 >
-                  <PlayerAvatar name={player.name} size="sm" />
-                  <span className="font-medium text-foreground">{player.name}</span>
-                  {isSelected && (
-                    <span className="ml-auto px-2 py-1 rounded-md bg-primary/15 text-primary font-bold text-sm">
-                      {orderIndex + 1}
-                    </span>
-                  )}
+                  Confirm
                 </button>
-              );
-            })}
-          </CollapsibleContent>
-        </Collapsible>
-      ))}
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
 
       {players.length === 0 && (
         <p className="text-center text-muted-foreground py-6">No players yet. Add some above!</p>

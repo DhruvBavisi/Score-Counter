@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Gamepad2, Users, Clock, Settings } from 'lucide-react';
 import { MenuCard } from '@/components/MenuCard';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default function Home() {
   const navigate = useNavigate();
@@ -15,6 +16,7 @@ export default function Home() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">Score like a pro</p>
         </div>
+        <ThemeToggle />
       </header>
 
       {/* Main Content */}
@@ -46,7 +48,7 @@ export default function Home() {
             icon={Users}
             title="Players"
             description="Manage vault"
-            color="success"
+            color="accent"
             onClick={() => navigate('/players')}
             delay={75}
           />
@@ -54,7 +56,7 @@ export default function Home() {
             icon={Clock}
             title="History"
             description="Past matches"
-            color="accent"
+            color="success"
             onClick={() => navigate('/history')}
             delay={150}
           />
@@ -62,7 +64,7 @@ export default function Home() {
             icon={Settings}
             title="Settings"
             description="Preferences"
-            color="dark"
+            color="secondary"
             onClick={() => navigate('/settings')}
             delay={225}
           />
