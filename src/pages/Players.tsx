@@ -15,10 +15,20 @@ export default function Players() {
   const [editName, setEditName] = useState('');
   const [editGroup, setEditGroup] = useState('');
 
+  // Generate unique groups from all players
+  const uniqueGroups = useMemo(() => {
+    const groups = new Set<string>();
+    players.forEach(player => {
+      if (player.group && player.group.trim()) {
+        groups.add(player.group);
+      }
+    });
+    return Array.from(groups).sort();
+  }, [players]);
+
   const handleAddPlayer = () => {
     if (addPlayer(newPlayerName, newPlayerGroup || undefined)) {
       setNewPlayerName('');
-      setNewPlayerGroup('');
       toast.success('Player added!');
     } else {
       toast.error('Player already exists or invalid name');
@@ -77,21 +87,28 @@ export default function Players() {
             onChange={(e) => setNewPlayerName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAddPlayer()}
             placeholder="Enter player name..."
-            className="px-4 py-3 rounded-xl bg-white dark:bg-secondary text-foreground placeholder:text-muted-foreground border border-border focus:border-primary focus:outline-none transition-colors shadow-sm"
+            className="px-4 py-3 rounded-xl bg-secondary text-foreground placeholder:text-muted-foreground border border-border focus:border-primary focus:outline-none transition-colors shadow-sm"
           />
-          <input
-            type="text"
-            value={newPlayerGroup}
-            onChange={(e) => setNewPlayerGroup(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddPlayer()}
-            placeholder="Group (optional)"
-            className="px-4 py-3 rounded-xl bg-white dark:bg-secondary text-foreground placeholder:text-muted-foreground border border-border focus:border-primary focus:outline-none transition-colors shadow-sm"
-          />
+          <div className="relative">
+            <input
+              type="text"
+              value={newPlayerGroup}
+              onChange={(e) => setNewPlayerGroup(e.target.value)}
+              placeholder="Group (optional)"
+              list="player-groups-list"
+              className="px-4 py-3 rounded-xl bg-secondary text-foreground placeholder:text-muted-foreground border border-border focus:border-primary focus:outline-none transition-colors shadow-sm"
+            />
+            <datalist id="player-groups-list">
+              {uniqueGroups.map((group) => (
+                <option key={group} value={group} />
+              ))}
+            </datalist>
+          </div>
           <button
             onClick={handleAddPlayer}
-            className="px-4 py-3 rounded-xl bg-primary text-primary-foreground shadow-glow hover:opacity-90 transition-opacity"
+            className="px-4 py-3 rounded-xl bg-primary text-primary-foreground shadow-glow hover:opacity-90 transition-opacity whitespace-nowrap"
           >
-            <Plus className="w-5 h-5" />
+            <Plus className="w-5 h-5 inline-block mr-2" /> Add
           </button>
         </div>
 

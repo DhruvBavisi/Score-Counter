@@ -21,6 +21,8 @@ export default function NewMatch() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const lastRowRef = useRef<HTMLTableRowElement | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showGroups, setShowGroups] = useState(false);
+
 
   // PlayerList component definition moved to top
   function PlayerList({ players, selectedPlayers, onToggle }: {
@@ -148,9 +150,21 @@ export default function NewMatch() {
   const [numRounds, setNumRounds] = useState(5);
   const [selectedPlayers, setSelectedPlayers] = useState<Player[]>([]);
   const [newPlayerName, setNewPlayerName] = useState('');
+  const [newPlayerGroup, setNewPlayerGroup] = useState('');
   const [matchName, setMatchName] = useState('');
   const toTitleCase = (s: string) =>
     s.replace(/\b\w+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+
+  // Generate unique groups from all players
+  const uniqueGroups = useMemo(() => {
+    const groups = new Set<string>();
+    allPlayers.forEach(player => {
+      if (player.group && player.group.trim()) {
+        groups.add(player.group);
+      }
+    });
+    return Array.from(groups).sort();
+  }, [allPlayers]);
 
   // Scoreboard state
   const [gameStarted, setGameStarted] = useState(false);
@@ -191,7 +205,7 @@ export default function NewMatch() {
   };
 
   const handleAddNewPlayer = () => {
-    if (addPlayer(newPlayerName)) {
+    if (addPlayer(newPlayerName, newPlayerGroup || undefined)) {
       setNewPlayerName('');
       toast.success('Player added!');
     } else {
@@ -525,22 +539,113 @@ export default function NewMatch() {
             </h2>
 
             {/* Add New Player */}
-            <div className="flex gap-2 mb-4">
-              <input
-                type="text"
-                value={newPlayerName}
-                onChange={(e) => setNewPlayerName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddNewPlayer()}
-                placeholder="New player name..."
-                className="flex-1 px-4 py-3 rounded-xl bg-secondary text-foreground placeholder:text-muted-foreground border border-border focus:border-primary focus:outline-none transition-colors"
-              />
+  <div className="space-y-4 mb-4">
+
+    {/* Player Name + Add Button */}
+    <div className="flex gap-3 items-end">
+
+  <div className="flex-1 relative group">
+    <input
+      type="text"
+      value={newPlayerName}
+      onChange={(e) => setNewPlayerName(e.target.value)}
+      onKeyDown={(e) => e.key === 'Enter' && handleAddNewPlayer()}
+      placeholder="Enter player name"
+      className="
+        w-full px-5 py-3 rounded-2xl
+        bg-secondary text-foreground
+        placeholder:text-muted-foreground
+        border border-border
+        focus:border-primary focus:ring-2 focus:ring-primary/30
+        outline-none transition-all
+        font-display text-sm shadow-sm
+      "
+    />
+  </div>
+
+  <button
+    onClick={handleAddNewPlayer}
+    className="
+      w-11 h-11 rounded-xl
+      flex items-center justify-center
+      bg-gradient-primary text-primary-foreground
+      shadow-glow
+      hover:scale-105 active:scale-95
+      transition-transform
+    "
+    title="Add Player"
+  >
+    <Plus className="w-5 h-5" />
+  </button>
+
+</div>
+
+  </div>
+
+    {/* Group Selector */}
+  <div className="relative">
+
+    <div className="relative group">
+      <input
+        type="text"
+        value={newPlayerGroup}
+        onChange={(e) => setNewPlayerGroup(e.target.value)}
+        onFocus={() => setShowGroups(true)}
+        onBlur={() => setShowGroups(false)}
+        placeholder="Select or create a group"
+        className="
+          w-full px-5 py-3 pr-12 rounded-2xl mb-3
+          bg-secondary text-foreground 
+          placeholder:text-muted-foreground 
+          border border-border 
+          focus:border-primary focus:ring-2 focus:ring-primary/30 
+          outline-none transition-all 
+          font-display text-sm shadow-sm
+          appearance-none 
+          [&::-webkit-calendar-picker-indicator]:hidden
+          [&::-webkit-list-button]:hidden
+        "
+      />
+
+      <ChevronDown className="absolute right-4 top-1/2 -translate-y-[70%] w-5 h-5 text-muted-foreground group-focus-within:text-primary transition-colors" />
+
+      {/* <span className="absolute left-4 -top-2 text-xs bg-background px-2 text-muted-foreground font-semibold">
+        Group
+      </span> */}
+    </div>
+
+    {showGroups && uniqueGroups.length > 0 && (
+      <div className="absolute z-50 mt-2 w-full rounded-2xl border border-border bg-background shadow-xl overflow-hidden animate-fade-in">
+        <div className="max-h-56 overflow-y-auto">
+          {uniqueGroups
+            .filter(group => group.toLowerCase().includes(newPlayerGroup.toLowerCase()))
+            .map(group => (
               <button
-                onClick={handleAddNewPlayer}
-                className="px-4 py-3 rounded-xl bg-primary text-primary-foreground"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
-            </div>
+              key={group}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();       // prevents input blur
+                setNewPlayerGroup(group);
+                setShowGroups(false);
+              }}
+              className="
+                w-full text-left px-4 py-3
+                font-display text-sm
+                text-foreground
+                hover:bg-primary/10
+                transition-colors
+              "
+            >
+              {group}
+            </button> 
+
+            ))}
+        </div>
+      </div>
+    )}
+  </div>  
+
+
 
             {/* Player List */}
             <PlayerList
