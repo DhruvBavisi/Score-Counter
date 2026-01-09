@@ -22,6 +22,126 @@ export default function NewMatch() {
   const lastRowRef = useRef<HTMLTableRowElement | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // PlayerList component definition moved to top
+  function PlayerList({ players, selectedPlayers, onToggle }: {
+    players: Player[];
+    selectedPlayers: Player[];
+    onToggle: (player: Player) => void;
+  }) {
+    const sortedPlayers = useMemo(() => [...players].sort((a, b) => a.name.localeCompare(b.name)), [players]);
+    const groups = useMemo(() => {
+      const map = new Map<string, Player[]>();
+      for (const p of sortedPlayers) {
+        const key = p.group?.trim() || 'Ungrouped';
+        const arr = map.get(key) || [];
+        arr.push(p);
+        map.set(key, arr);
+      }
+      return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    }, [sortedPlayers]);
+    const [openGroup, setOpenGroup] = useState<{ name: string; players: Player[] } | null>(null);
+    const [tempSelected, setTempSelected] = useState<string[]>([]);
+
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {groups.map(([groupName, groupPlayers]) => (
+            <button
+              key={groupName}
+              onClick={() => {
+                setOpenGroup({ name: groupName, players: groupPlayers });
+                const selectedOrder = selectedPlayers
+                  .filter((p) => groupPlayers.some((gp) => gp.id === p.id))
+                  .map((p) => p.id);
+                setTempSelected(selectedOrder);
+              }}
+              className="p-4 rounded-2xl border-2 transition-all bg-secondary text-foreground hover:bg-secondary/80 flex items-center justify-between"
+            >
+              <span className="text-sm font-semibold">{groupName}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{groupPlayers.length}</span>
+                {selectedPlayers.some((p) => groupPlayers.some((gp) => gp.id === p.id)) && (
+                  <span className="text-xs px-2 py-0.5 rounded-md bg-primary/15 text-primary font-semibold">
+                    {
+                      selectedPlayers.filter((p) => groupPlayers.some((gp) => gp.id === p.id)).length
+                    }
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {openGroup && (
+          <Sheet open={!!openGroup} onOpenChange={() => setOpenGroup(null)}>
+            <SheetContent side="bottom" className="h-full p-0">
+              <div className="flex flex-col h-full bg-background">
+                <header className="p-4 border-b border-border">
+                  <h3 className="font-display text-lg font-bold text-foreground">{openGroup.name}</h3>
+                  <p className="text-sm text-muted-foreground">{openGroup.players.length} players</p>
+                </header>
+                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                  {openGroup.players.map((player) => {
+                    const index = tempSelected.indexOf(player.id);
+                    const isTempSelected = index !== -1;
+                    return (
+                      <button
+                        key={player.id}
+                        onClick={() => {
+                          setTempSelected((prev) => {
+                            const exists = prev.includes(player.id);
+                            if (exists) {
+                              return prev.filter((id) => id !== player.id);
+                            }
+                            return [...prev, player.id];
+                          });
+                        }}
+                        className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${
+                          isTempSelected ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50'
+                        }`}
+                      >
+                        <PlayerAvatar name={player.name} size="sm" />
+                        <span className="font-medium text-foreground">{player.name}</span>
+                        {isTempSelected && (
+                          <span className="ml-auto px-2 py-1 rounded-md bg-primary/15 text-primary font-bold text-sm">
+                            {index + 1}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="p-6 bg-gradient-to-t from-background to-transparent safe-bottom">
+                  <button
+                    onClick={() => {
+                      const groupIds = new Set(openGroup.players.map((p) => p.id));
+                      const currentlySelectedIds = new Set(selectedPlayers.map((p) => p.id));
+                      const desiredSelectedIds = new Set(tempSelected);
+                      for (const player of openGroup.players) {
+                        const shouldBeSelected = desiredSelectedIds.has(player.id);
+                        const isSelectedNow = currentlySelectedIds.has(player.id);
+                        if (shouldBeSelected !== isSelectedNow) {
+                          onToggle(player);
+                        }
+                      }
+                      setOpenGroup(null);
+                    }}
+                    className="w-full py-4 rounded-2xl bg-gradient-primary text-primary-foreground font-display font-bold text-lg shadow-glow"
+                  >
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            </SheetContent>
+          </Sheet>
+        )}
+
+        {players.length === 0 && (
+          <p className="text-center text-muted-foreground py-6">No players yet. Add some above!</p>
+        )}
+      </div>
+    );
+  }
 
   // Setup state
   const [winnerRule, setWinnerRule] = useState<'highest' | 'lowest'>('highest');
@@ -432,7 +552,7 @@ export default function NewMatch() {
         </main>
 
         {/* Start Button */}
-        <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-background to-transparent safe-bottom">
+        <div className="fixed bottom-0 left-0 right-0 p-6 pb-4 bg-gradient-to-t from-background to-transparent">
           <button
             onClick={startGame}
             disabled={selectedPlayers.length < 2}
@@ -477,7 +597,7 @@ export default function NewMatch() {
                     <div className="flex flex-col items-center gap-1 no-select">  
                       {i === winnerIndex && gameFinished && <Crown className="w-4 h-4 crown-bounce text-yellow-500" />}
                       <PlayerAvatar
-                        className="no-select"
+                        className= "no-select"
                         name={player.name}
                         size="sm"
                         isWinner={i === winnerIndex && gameFinished}
@@ -693,126 +813,4 @@ export default function NewMatch() {
   );
 }
 
-function PlayerList({
-  players,
-  selectedPlayers,
-  onToggle,
-}: {
-  players: Player[];
-  selectedPlayers: Player[];
-  onToggle: (player: Player) => void;
-}) {
-  const sortedPlayers = useMemo(() => [...players].sort((a, b) => a.name.localeCompare(b.name)), [players]);
-  const groups = useMemo(() => {
-    const map = new Map<string, Player[]>();
-    for (const p of sortedPlayers) {
-      const key = p.group?.trim() || 'Ungrouped';
-      const arr = map.get(key) || [];
-      arr.push(p);
-      map.set(key, arr);
-    }
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [sortedPlayers]);
-  const [openGroup, setOpenGroup] = useState<{ name: string; players: Player[] } | null>(null);
-  const [tempSelected, setTempSelected] = useState<string[]>([]);
 
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {groups.map(([groupName, groupPlayers]) => (
-          <button
-            key={groupName}
-            onClick={() => {
-              setOpenGroup({ name: groupName, players: groupPlayers });
-              const selectedOrder = selectedPlayers
-                .filter((p) => groupPlayers.some((gp) => gp.id === p.id))
-                .map((p) => p.id);
-              setTempSelected(selectedOrder);
-            }}
-            className="p-4 rounded-2xl border-2 transition-all bg-secondary text-foreground hover:bg-secondary/80 flex items-center justify-between"
-          >
-            <span className="text-sm font-semibold">{groupName}</span>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{groupPlayers.length}</span>
-              {selectedPlayers.some((p) => groupPlayers.some((gp) => gp.id === p.id)) && (
-                <span className="text-xs px-2 py-0.5 rounded-md bg-primary/15 text-primary font-semibold">
-                  {
-                    selectedPlayers.filter((p) => groupPlayers.some((gp) => gp.id === p.id)).length
-                  }
-                </span>
-              )}
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {openGroup && (
-        <Sheet open={!!openGroup} onOpenChange={() => setOpenGroup(null)}>
-          <SheetContent side="bottom" className="h-full p-0">
-            <div className="flex flex-col h-full bg-background">
-              <header className="p-4 border-b border-border">
-                <h3 className="font-display text-lg font-bold text-foreground">{openGroup.name}</h3>
-                <p className="text-sm text-muted-foreground">{openGroup.players.length} players</p>
-              </header>
-              <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                {openGroup.players.map((player) => {
-                  const index = tempSelected.indexOf(player.id);
-                  const isTempSelected = index !== -1;
-                  return (
-                    <button
-                      key={player.id}
-                      onClick={() => {
-                        setTempSelected((prev) => {
-                          const exists = prev.includes(player.id);
-                          if (exists) {
-                            return prev.filter((id) => id !== player.id);
-                          }
-                          return [...prev, player.id];
-                        });
-                      }}
-                      className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${
-                        isTempSelected ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50'
-                      }`}
-                    >
-                      <PlayerAvatar name={player.name} size="sm" />
-                      <span className="font-medium text-foreground">{player.name}</span>
-                      {isTempSelected && (
-                        <span className="ml-auto px-2 py-1 rounded-md bg-primary/15 text-primary font-bold text-sm">
-                          {index + 1}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="p-6 bg-gradient-to-t from-background to-transparent safe-bottom">
-                <button
-                  onClick={() => {
-                    const groupIds = new Set(openGroup.players.map((p) => p.id));
-                    const currentlySelectedIds = new Set(selectedPlayers.map((p) => p.id));
-                    const desiredSelectedIds = new Set(tempSelected);
-                    for (const player of openGroup.players) {
-                      const shouldBeSelected = desiredSelectedIds.has(player.id);
-                      const isSelectedNow = currentlySelectedIds.has(player.id);
-                      if (shouldBeSelected !== isSelectedNow) {
-                        onToggle(player);
-                      }
-                    }
-                    setOpenGroup(null);
-                  }}
-                  className="w-full py-4 rounded-2xl bg-gradient-primary text-primary-foreground font-display font-bold text-lg shadow-glow"
-                >
-                  Confirm
-                </button>
-              </div>
-            </div>
-          </SheetContent>
-        </Sheet>
-      )}
-
-      {players.length === 0 && (
-        <p className="text-center text-muted-foreground py-6">No players yet. Add some above!</p>
-      )}
-    </div>
-  );
-}

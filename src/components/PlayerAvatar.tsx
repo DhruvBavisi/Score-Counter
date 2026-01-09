@@ -1,8 +1,11 @@
-interface PlayerAvatarProps {
+import React from 'react';
+
+interface PlayerAvatarProps extends React.HTMLAttributes<HTMLDivElement> {
   name: string;
   size?: 'sm' | 'md' | 'lg';
   isWinner?: boolean;
 }
+
 
 const sizeClasses = {
   sm: 'w-8 h-8 text-xs',
