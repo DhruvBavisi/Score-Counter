@@ -1,13 +1,24 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { cn } from '@/lib/utils';
 import { ArrowLeft, Trophy, TrendingDown, Check, Plus, Crown, Medal, Play, ChevronDown, Settings, RotateCcw, LogOut, Edit, Save } from 'lucide-react';
 import { useGame, Player } from '@/contexts/GameContext';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { Numpad } from '@/components/Numpad';
 import { Confetti } from '@/components/Confetti';
 import { toast } from 'sonner';
-import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetClose } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface RankingPlayer {
   player: Player;
@@ -44,6 +55,16 @@ export default function NewMatch() {
     
     const [openGroup, setOpenGroup] = useState<{ name: string; players: Player[] } | null>(null);
     const [tempSelected, setTempSelected] = useState<string[]>([]);
+    const [isClosing, setIsClosing] = useState(false);
+
+    const handleCloseGroup = (onConfirm?: () => void) => {
+      setIsClosing(true);
+      setTimeout(() => {
+        if (onConfirm) onConfirm();
+        setOpenGroup(null);
+        setIsClosing(false);
+      }, 300);
+    };
     
     // Drag and Drop State
     const [draggingState, setDraggingState] = useState<{
@@ -161,12 +182,24 @@ export default function NewMatch() {
                 )}
               </div>
             </button>
+            
           ))}
         </div>
 
         {openGroup && (
-          <Sheet open={!!openGroup} onOpenChange={() => setOpenGroup(null)}>
-            <SheetContent side="bottom" className="h-[85vh] p-0 rounded-t-3xl">
+          <Sheet open={!!openGroup} onOpenChange={(open) => {
+            if (!open && !isClosing) {
+              handleCloseGroup();
+            }
+          }}>
+            <SheetContent 
+              side="bottom" 
+              className={cn(
+                "h-[85vh] p-0 rounded-t-3xl outline-none transition-transform duration-300 ease-in-out",
+                isClosing ? "translate-y-full" : "translate-y-0"
+              )} 
+              hideClose
+            >
               <div className="flex flex-col h-full bg-background">
                 <header className="p-4 border-b border-border flex items-center justify-between">
                   <div>
@@ -174,8 +207,8 @@ export default function NewMatch() {
                     <p className="text-sm text-muted-foreground">{openGroup.players.length} players</p>
                   </div>
                   <button 
-                    onClick={() => setOpenGroup(null)}
-                    className="p-2 -mr-2 text-muted-foreground hover:text-foreground"
+                    onClick={() => handleCloseGroup()}
+                    className="p-2 -mr-2 text-muted-foreground hover:text-foreground transition-all active:translate-y-1"
                   >
                     <ChevronDown className="w-6 h-6" />
                   </button>
@@ -195,8 +228,14 @@ export default function NewMatch() {
                             onPointerMove={handlePointerMove}
                             onPointerUp={handlePointerUp}
                             onPointerCancel={handlePointerUp}
+                            onClick={(e) => {
+                              // If not dragging, deselect
+                              if (!draggingState) {
+                                setTempSelected(prev => prev.filter(pid => pid !== id));
+                              }
+                            }}
                             style={getItemStyle(index, id)}
-                            className={`w-full p-3 rounded-xl border-2 flex items-center gap-3 border-primary bg-primary/10 select-none touch-none`}
+                            className={`w-full p-3 rounded-xl border-2 flex items-center gap-3 border-primary bg-primary/10 select-none touch-none cursor-pointer`}
                           >
                             <PlayerAvatar name={player.name} size="sm" />
                             <span className="font-medium text-foreground flex-1 text-left select-none">{player.name}</span>
@@ -242,20 +281,21 @@ export default function NewMatch() {
                 <div className="p-6 bg-gradient-to-t from-background to-transparent safe-bottom">
                   <button
                     onClick={() => {
-                      // Remove players of this group from global selection
-                      const groupIds = new Set(openGroup.players.map((p) => p.id));
-                      const otherSelected = selectedPlayers.filter(p => !groupIds.has(p.id));
-                      
-                      // Get new selected players in order
-                      const newGroupSelected = tempSelected
-                        .map(id => openGroup.players.find(p => p.id === id))
-                        .filter((p): p is Player => !!p);
-                      
-                      // Combine: Others + New (Sorted)
-                      onUpdateSelected([...otherSelected, ...newGroupSelected]);
-                      setOpenGroup(null);
+                      handleCloseGroup(() => {
+                        // Remove players of this group from global selection
+                        const groupIds = new Set(openGroup.players.map((p) => p.id));
+                        const otherSelected = selectedPlayers.filter(p => !groupIds.has(p.id));
+                        
+                        // Get new selected players in order
+                        const newGroupSelected = tempSelected
+                          .map(id => openGroup.players.find(p => p.id === id))
+                          .filter((p): p is Player => !!p);
+                        
+                        // Combine: Others + New (Sorted)
+                        onUpdateSelected([...otherSelected, ...newGroupSelected]);
+                      });
                     }}
-                    className="w-full py-4 rounded-2xl bg-gradient-primary text-primary-foreground font-display font-bold text-lg shadow-glow"
+                    className="w-full py-4 rounded-2xl bg-gradient-primary text-primary-foreground font-display font-bold text-lg shadow-glow active:scale-[0.98] transition-all"
                   >
                     Confirm Selection
                   </button>
@@ -278,6 +318,7 @@ export default function NewMatch() {
   const [selectedPlayers, setSelectedPlayers] = useState<Player[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [savedScores, setSavedScores] = useState<number[][]>([]);
+  const [savedPlayers, setSavedPlayers] = useState<Player[]>([]);
   const [newPlayerName, setNewPlayerName] = useState('');
   const [newPlayerGroup, setNewPlayerGroup] = useState('');
   const [matchName, setMatchName] = useState('');
@@ -303,6 +344,8 @@ export default function NewMatch() {
   const [gameFinished, setGameFinished] = useState(false);
   const [inactivePlayers, setInactivePlayers] = useState<string[]>([]);
   const [menuTarget, setMenuTarget] = useState<string | null>(null);
+  const [showRestartDialog, setShowRestartDialog] = useState(false);
+  const [showExitDialog, setShowExitDialog] = useState(false);
   const toggleInactive = (id: string) =>
     setInactivePlayers((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   useEffect(() => {
@@ -374,33 +417,42 @@ export default function NewMatch() {
     }
 
     if (isEditing && savedScores.length > 0) {
-      // Logic to preserve scores or migrate them
-      // For simplicity, if we are in edit mode, we try to keep the scores.
-      // However, if players were added/removed/reordered, the columns might be wrong.
-      // Ideally, we should have tracked player IDs in scores.
-      // Since we didn't, we will assume the user knows what they are doing if they reorder.
-      // OR better: we can map the old scores to new positions if we saved them with IDs.
-      // But savedScores is just number[][].
-      // For now, we'll just restore savedScores but resized if needed.
+      // Map previous scores to players by ID
+      const playerScoresMap = new Map<string, number[]>();
+      // savedPlayers should match the columns of savedScores
+      // If savedPlayers is empty (legacy/edge case), we fallback to index mapping (risky but better than crash)
+      const sourcePlayers = savedPlayers.length > 0 ? savedPlayers : selectedPlayers; 
       
-      // If the number of players changed, we need to adjust columns
-      const newScores = savedScores.map(round => {
-        const newRound = [...round];
-        if (newRound.length < selectedPlayers.length) {
-          // Add zeros for new players
-          return [...newRound, ...Array(selectedPlayers.length - newRound.length).fill(0)];
-        } else if (newRound.length > selectedPlayers.length) {
-          // Truncate (removed players) - potentially losing data for removed players at the end
-          return newRound.slice(0, selectedPlayers.length);
-        }
-        return newRound;
+      sourcePlayers.forEach((player, index) => {
+        const scoresForPlayer = savedScores.map(round => round[index]);
+        playerScoresMap.set(player.id, scoresForPlayer);
       });
+
+      // Reconstruct scores for the current selectedPlayers order
+      // We take the max rounds from savedScores to preserve history
+      const roundsCount = savedScores.length;
       
-      // If rounds increased
+      const newScores: number[][] = [];
+      for (let r = 0; r < roundsCount; r++) {
+        const newRound: number[] = [];
+        selectedPlayers.forEach(player => {
+          const pScores = playerScoresMap.get(player.id);
+          // If player existed and has a score for this round, use it. Otherwise 0.
+          if (pScores && pScores[r] !== undefined) {
+            newRound.push(pScores[r]);
+          } else {
+            newRound.push(0);
+          }
+        });
+        newScores.push(newRound);
+      }
+      
+      // If rounds increased via settings
       if (numRounds > newScores.length) {
         const extraRounds = Array(numRounds - newScores.length).fill(null).map(() => Array(selectedPlayers.length).fill(0));
         setScores([...newScores, ...extraRounds]);
       } else {
+        // If rounds decreased, we slice.
         setScores(newScores.slice(0, numRounds));
       }
       setIsEditing(false);
@@ -892,12 +944,13 @@ export default function NewMatch() {
               } else {
                 setIsEditing(true);
                 setSavedScores(scores);
+                setSavedPlayers(selectedPlayers);
                 setGameStarted(false);
               }
             }}
             className="p-2 rounded-xl hover:bg-secondary transition-colors"
           >
-            <ArrowLeft className="w-6 h-6 text-foreground" />
+            {/* <ArrowLeft className="w-6 h-6 text-foreground" /> */}
           </button>
           <h1 className="font-display text-lg font-bold text-foreground">
             {matchName || 'Match Score'}
@@ -911,45 +964,110 @@ export default function NewMatch() {
                 <Settings className="w-6 h-6" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56 rounded-xl">
-              <DropdownMenuItem className="cursor-pointer font-medium">
-                <Play className="w-4 h-4 mr-2" /> Resume Game
-              </DropdownMenuItem>
+            <DropdownMenuContent align="end" className="w-64 p-2 rounded-2xl shadow-xl border-border/50 bg-background/95 backdrop-blur-sm">
               <DropdownMenuItem
                 onClick={() => {
                   setIsEditing(true);
                   setSavedScores(scores);
+                  setSavedPlayers(selectedPlayers);
                   setGameStarted(false);
                 }}
-                className="cursor-pointer font-medium"
+                className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-semibold text-foreground hover:bg-primary/10 focus:bg-primary/10 transition-colors"
               >
-                <Edit className="w-4 h-4 mr-2" /> Edit Game
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/15 text-primary">
+                  <Edit className="w-5 h-5" />
+                </div>
+                <div className="flex flex-col">
+                  <span>Edit Game</span>
+                  <span className="text-[10px] text-muted-foreground font-normal">Change players or rounds</span>
+                </div>
               </DropdownMenuItem>
+              
               <DropdownMenuItem
-                onClick={() => {
-                  if (confirm('Restart game? Current scores will be lost.')) {
-                    setScores(Array(numRounds).fill(null).map(() => Array(selectedPlayers.length).fill(0)));
-                    setGameFinished(false);
-                  }
-                }}
-                className="cursor-pointer font-medium text-orange-500 focus:text-orange-500"
+                onClick={() => setShowRestartDialog(true)}
+                className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-semibold text-orange-500 hover:bg-orange-500/10 focus:bg-orange-500/10 transition-colors mt-1"
               >
-                <RotateCcw className="w-4 h-4 mr-2" /> Restart Game
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-orange-500/15 text-orange-500">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div className="flex flex-col">
+                  <span>Restart Game</span>
+                  <span className="text-[10px] text-orange-500/70 font-normal">Reset all scores to zero</span>
+                </div>
               </DropdownMenuItem>
+
               <DropdownMenuItem
-                onClick={() => {
-                  if (confirm('Exit game? Progress will be lost.')) {
-                    navigate('/');
-                  }
-                }}
-                className="cursor-pointer font-medium text-destructive focus:text-destructive"
+                onClick={() => setShowExitDialog(true)}
+                className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-semibold text-destructive hover:bg-destructive/10 focus:bg-destructive/10 transition-colors mt-1"
               >
-                <LogOut className="w-4 h-4 mr-2" /> Exit Game
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-destructive/15 text-destructive">
+                  <LogOut className="w-5 h-5" />
+                </div>
+                <div className="flex flex-col">
+                  <span>Exit Game</span>
+                  <span className="text-[10px] text-destructive/70 font-normal">Discard game and go back</span>
+                </div>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
       </header>
+
+      {/* Restart Game Dialog */}
+      <AlertDialog open={showRestartDialog} onOpenChange={setShowRestartDialog}>
+        <AlertDialogContent className="rounded-3xl max-w-[90vw] sm:max-w-lg border-2 border-border/50 shadow-2xl animate-in fade-in zoom-in duration-300">
+          <AlertDialogHeader className="space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-full bg-orange-500/15 flex items-center justify-center text-orange-500 mb-2">
+              <RotateCcw className="w-8 h-8" />
+            </div>
+            <AlertDialogTitle className="text-2xl font-display font-bold text-center">Restart Game?</AlertDialogTitle>
+            <AlertDialogDescription className="text-center text-base">
+              This will reset all current scores to zero. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-row gap-3 mt-6">
+            <AlertDialogCancel className="flex-1 h-12 rounded-2xl border-2 font-bold hover:bg-secondary">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                setScores(Array(numRounds).fill(null).map(() => Array(selectedPlayers.length).fill(0)));
+                setGameFinished(false);
+                toast.success('Game restarted');
+              }}
+              className="flex-1 h-12 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white font-bold border-none shadow-lg shadow-orange-500/20"
+            >
+              Restart
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Exit Game Dialog */}
+      <AlertDialog open={showExitDialog} onOpenChange={setShowExitDialog}>
+        <AlertDialogContent className="rounded-3xl max-w-[90vw] sm:max-w-lg border-2 border-border/50 shadow-2xl animate-in fade-in zoom-in duration-300">
+          <AlertDialogHeader className="space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-full bg-destructive/15 flex items-center justify-center text-destructive mb-2">
+              <LogOut className="w-8 h-8" />
+            </div>
+            <AlertDialogTitle className="text-2xl font-display font-bold text-center">Exit Game?</AlertDialogTitle>
+            <AlertDialogDescription className="text-center text-base">
+              Your current game progress will be lost. Are you sure you want to go back to the home screen?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-row gap-3 mt-6">
+            <AlertDialogCancel className="flex-1 h-12 rounded-2xl border-2 font-bold hover:bg-secondary">
+              Stay
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => navigate('/')}
+              className="flex-1 h-12 rounded-2xl bg-destructive hover:bg-destructive/90 text-white font-bold border-none shadow-lg shadow-destructive/20"
+            >
+              Exit
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <main className="flex-1 p-6 page-enter space-y-6 pb-6">
         {/* Score Table */}
