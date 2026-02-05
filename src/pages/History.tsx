@@ -28,6 +28,7 @@ export default function History() {
   const { games, deleteGame } = useGame();
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
   const [gameToDelete, setGameToDelete] = useState<string | null>(null);
+  const [draftToDelete, setDraftToDelete] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
   const [draftInfo, setDraftInfo] = useState<DraftInfo | null>(null);
 
@@ -53,12 +54,11 @@ export default function History() {
   };
 
   const dismissDraft = () => {
-    if (window.confirm('Are you sure you want to discard this game draft?')) {
-      localStorage.removeItem('game_draft');
-      setHasDraft(false);
-      setDraftInfo(null);
-      toast.success('Draft discarded');
-    }
+    localStorage.removeItem('game_draft');
+    setHasDraft(false);
+    setDraftInfo(null);
+    setDraftToDelete(false);
+    toast.success('Draft discarded');
   };
 
   const handleDeleteGame = (e: React.MouseEvent, id: string) => {
@@ -149,38 +149,47 @@ export default function History() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="mb-8 glass-card overflow-hidden border-primary/30 bg-primary/5"
             >
-              <div className="w-full p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
-                  <Play className="w-6 h-6 text-primary-foreground fill-current ml-0.5" />
-                </div>
-                
-                <div className="flex-1 text-left">
-                  <h3 className="font-semibold text-foreground">
-                    {draftInfo.matchName}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    {draftInfo.playerCount} Players · In Progress
-                  </p>
+              <div className="p-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
+                    <Play className="w-6 h-6 text-primary fill-current" />
+                  </div>
+                  
+                  <div className="flex-1 text-left">
+                    <h3 className="font-semibold text-foreground">
+                      {draftInfo.matchName}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {draftInfo.playerCount} Players · In Progress
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10">
+                      <Clock className="w-3.5 h-3.5 text-primary" />
+                      <span className="text-xs font-semibold text-primary">Draft</span>
+                    </div>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setDraftToDelete(true); }}
+                      className="p-2 rounded-lg hover:bg-destructive/10 text-destructive transition-colors ml-2"
+                      title="Discard Draft"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <div className="w-5 h-5 opacity-0">
+                      <ChevronDown className="w-5 h-5" />
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Play className="w-4 h-4 text-primary fill-current" />
-                  <span className="text-sm font-semibold text-foreground">In Progress</span>
+                <div className="mt-3 pt-3 border-t border-border">
                   <button
                     onClick={continueDraft}
-                    className="p-2 rounded-lg hover:bg-primary/10 text-primary transition-colors ml-2"
-                    title="Resume Game"
+                    className="w-full py-3 rounded-xl bg-primary text-primary-foreground flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-glow-sm active:scale-[0.98] font-semibold"
                   >
                     <Play className="w-4 h-4 fill-current" />
+                    Resume Game
                   </button>
-                  <button 
-                    onClick={dismissDraft}
-                    className="p-2 rounded-lg hover:bg-red-500/10 text-red-500 transition-colors"
-                    title="Discard Draft"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                  <ChevronDown className="w-5 h-5 text-muted-foreground invisible" />
                 </div>
               </div>
             </motion.div>
@@ -362,6 +371,26 @@ export default function History() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      <AlertDialog open={draftToDelete} onOpenChange={setDraftToDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard Game Draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete your in-progress game. All unsaved scores and progress will be lost. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Draft</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={dismissDraft}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Discard Draft
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
