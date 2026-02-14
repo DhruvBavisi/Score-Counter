@@ -61,7 +61,7 @@ export default function NewMatch() {
   // Scoreboard state
   const [gameStarted, setGameStarted] = useState(false);
   const [scores, setScores] = useState<number[][]>([]);
-  const [currentCell, setCurrentCell] = useState<{ row: number; col: number; type: 'prediction' | 'points' | 'score' } | null>(null);
+  const [currentCell, setCurrentCell] = useState<{ row: number; col: number; type: 'prediction' | 'points' | 'score' | 'customPoint' } | null>(null);
   const [numpadValue, setNumpadValue] = useState('');
   const [gameFinished, setGameFinished] = useState(false);
   const [inactivePlayers, setInactivePlayers] = useState<string[]>([]);
@@ -87,11 +87,11 @@ export default function NewMatch() {
   const [gameType, setGameType] = useState<'standard' | 'judgement'>('standard');
   const [scoringSystem, setScoringSystem] = useState<'standard' | 'progressive' | 'dynamic' | 'custom'>('standard');
   const [penaltyMode, setPenaltyMode] = useState(false);
-  const [customPoints, setCustomPoints] = useState<number[]>([10, 15, 20, 30, 40]);
+  const [customPoints, setCustomPoints] = useState<(number | null)[]>([null, null, null, null, null]);
   const [predictions, setPredictions] = useState<(number | null)[][]>([]);
   const [results, setResults] = useState<(boolean | null)[][]>([]);
 
-  const calcPoints = (pred: number, correct: boolean, system: string, penalty: boolean, custom: number[]) => {
+  const calcPoints = (pred: number, correct: boolean, system: string, penalty: boolean, custom: (number | null)[]) => {
     const m = correct ? 1 : (penalty ? -1 : 0);
     if (!correct && !penalty) return 0;
     if (system === 'standard') return m * (pred === 0 ? 10 : pred * 10);
@@ -103,9 +103,10 @@ export default function NewMatch() {
       return m * (30 + (pred - 3) * 10);
     }
     if (system === 'custom') {
-      if (pred <= 4) return m * custom[pred];
-      let val = custom[4];
-      const d = [custom[2] - custom[1], custom[3] - custom[2], custom[4] - custom[3]];
+      const getVal = (idx: number) => custom[idx] ?? 0;
+      if (pred <= 4) return m * getVal(pred);
+      let val = getVal(4);
+      const d = [getVal(2) - getVal(1), getVal(3) - getVal(2), getVal(4) - getVal(3)];
       for (let i = 5; i <= pred; i++) val += d[(i - 5) % 3];
       return m * val;
     }
@@ -536,10 +537,19 @@ export default function NewMatch() {
   }, [allPlayers]);
   const toggleInactive = (id: string) =>
     setInactivePlayers((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const prevRoundsCount = useRef(0);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    
+    // Only scroll to bottom if rounds were actually added (not initial start)
+    if (scores.length > prevRoundsCount.current && prevRoundsCount.current > 0) {
+      el.scrollTop = el.scrollHeight;
+    } else if (scores.length > 0 && prevRoundsCount.current === 0) {
+      // On initial start, ensure we are at the top
+      el.scrollTop = 0;
+    }
+    prevRoundsCount.current = scores.length;
   }, [scores.length]);
 
   useEffect(() => {
@@ -807,23 +817,40 @@ export default function NewMatch() {
     setScores(updated);
   };
 
-    const scrollActiveCellIntoView = (row: number, col: number, type: string) => {
+    useEffect(() => {
+    if (gameStarted && gameType === 'judgement' && scrollRef.current) {
+      scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [gameStarted, gameType]);
+
+  const scrollActiveCellIntoView = (row: number, col: number, type: string, forceScrollRight?: boolean) => {
     const container = scrollRef.current;
     const cell = document.querySelector(
       `button[data-row="${row}"][data-col="${col}"][data-type="${type}"]`
     ) as HTMLButtonElement | null;
 
-    if (!container || !cell) return;
+    if (!container) return;
+
+    if (forceScrollRight) {
+      container.scrollTo({
+        left: container.scrollWidth,
+        behavior: 'smooth'
+      });
+      return;
+    }
+
+    if (!cell) return;
 
     const containerRect = container.getBoundingClientRect();
     const cellRect = cell.getBoundingClientRect();
 
     const stickyColumnWidth = 64; // matches your "Round" column width
+    const stickyTotalWidth = 80; // Estimate for "TOTAL" column width
     const padding = 24;
 
     // Horizontal scroll — respect sticky column
-    if (cellRect.right > containerRect.right - padding) {
-      container.scrollLeft += cellRect.right - (containerRect.right - padding);
+    if (cellRect.right > containerRect.right - stickyTotalWidth - padding) {
+      container.scrollLeft += cellRect.right - (containerRect.right - stickyTotalWidth - padding);
     } else if (cellRect.left < containerRect.left + stickyColumnWidth + padding) {
       container.scrollLeft -=
         containerRect.left + stickyColumnWidth + padding - cellRect.left;
@@ -937,6 +964,22 @@ export default function NewMatch() {
   const handleNumpadEnter = () => {
     if (!currentCell) return;
 
+    if (currentCell.type === 'customPoint') {
+      const { col } = currentCell;
+      const val = numpadValue === '' ? null : parseInt(numpadValue, 10);
+      const newCustom = [...customPoints];
+      newCustom[col] = val;
+      setCustomPoints(newCustom);
+      
+      if (col < 4) {
+        setCurrentCell({ row: 0, col: col + 1, type: 'customPoint' });
+        setNumpadValue(customPoints[col + 1] === null ? '' : customPoints[col + 1]!.toString());
+      } else {
+        setCurrentCell(null);
+      }
+      return;
+    }
+
     if (gameType === "judgement") {
       const { row, col, type } = currentCell;
       const value = numpadValue === '' ? null : parseInt(numpadValue, 10);
@@ -973,6 +1016,8 @@ export default function NewMatch() {
         }
 
         setCurrentCell(null);
+        // Scroll to the end (Total column) when all predictions are filled
+        scrollActiveCellIntoView(row, col, type, true);
       } else if (type === "points") {
         openResultMarking(row, col);
       }
@@ -1206,16 +1251,17 @@ export default function NewMatch() {
                           {[0, 1, 2, 3, 4].map((i) => (
                             <div key={i} className="flex flex-col gap-1">
                               <span className="text-[10px] text-center text-muted-foreground">Pred {i}</span>
-                              <input
-                                type="number"
-                                value={customPoints[i]}
-                                onChange={(e) => {
-                                  const n = [...customPoints];
-                                  n[i] = +e.target.value;
-                                  setCustomPoints(n);
+                              <button
+                                onClick={() => {
+                                  setCurrentCell({ row: 0, col: i, type: 'customPoint' });
+                                  setNumpadValue(customPoints[i] === 0 && i === 0 ? '0' : (customPoints[i] || '').toString());
                                 }}
-                                className="w-[44px] px-1 py-2 rounded-lg bg-background border border-border text-center text-sm focus:border-primary outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                              />
+                                className={`w-full py-2 rounded-lg bg-background border border-border text-center text-sm focus:border-primary outline-none ${currentCell?.type === 'customPoint' && currentCell?.col === i ? 'ring-2 ring-primary border-primary' : ''}`}
+                              >
+                                {currentCell?.type === 'customPoint' && currentCell?.col === i
+                                  ? (numpadValue === '' ? (customPoints[i] === null ? '-' : customPoints[i]) : numpadValue)
+                                  : (customPoints[i] === null ? '-' : customPoints[i])}
+                              </button>
                             </div>
                           ))}
                         </div>
@@ -1443,6 +1489,17 @@ export default function NewMatch() {
             {isEditing ? 'Resume Game' : 'Start Game'}
           </button>
         </div>
+
+        {currentCell && currentCell.type === 'customPoint' && (
+          <Numpad
+            value={numpadValue}
+            onChange={setNumpadValue}
+            onEnter={handleNumpadEnter}
+            onClose={() => setCurrentCell(null)}
+            type={currentCell.type}
+            gameType={gameType}
+          />
+        )}
       </div>
     );
   }
@@ -1765,7 +1822,7 @@ export default function NewMatch() {
                     </div>
                   </th>
                 ))}
-                <th className="sticky right-0 top-0 z-50 bg-background shadow-lg border-l-2 border-border p-2 text-center text-xs text-muted-foreground font-bold">TOTAL</th>
+                <th className="sticky right-0 top-0 z-50 bg-background shadow-lg border-l-2 border-border border-b border-border p-2 text-center text-xs text-muted-foreground font-bold">TOTAL</th>
               </tr>
             </thead>
               <tbody>
@@ -1773,7 +1830,7 @@ export default function NewMatch() {
                   gameType === 'judgement' ? (
                     <Fragment key={rowIndex}>
                       <tr className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''} bg-secondary/50`}>
-                        <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">R{rowIndex + 1} Pred</td>
+                        <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">R{rowIndex + 1}</td>
                         {round.map((_, colIndex) => (
                           <td key={colIndex} className="p-1">
                             <button
@@ -1783,7 +1840,7 @@ export default function NewMatch() {
                                 results[rowIndex]?.[colIndex] === true ? 'bg-green-600/10' : 
                                 results[rowIndex]?.[colIndex] === false ? 'bg-red-600/10' : 
                                 'bg-secondary'
-                              } text-foreground hover:bg-secondary/80 flex items-center justify-center gap-1 ${gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) ? 'cursor-default opacity-50' : ''} ${currentCell?.col === colIndex && currentCell?.row === rowIndex ? 'ring-2 ring-primary/50' : ''}`}
+                              } text-foreground hover:bg-secondary/80 flex items-center justify-center gap-1 ${gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) ? 'cursor-default opacity-50' : ''} ${currentCell?.col === colIndex && currentCell?.row === rowIndex && currentCell?.type === 'prediction' ? 'ring-2 ring-primary/50 border-transparent' : ''}`}
                               data-row={rowIndex}
                               data-col={colIndex}
                               data-type="prediction"
@@ -1835,14 +1892,14 @@ export default function NewMatch() {
                               }}
                               disabled={gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) || predictions[rowIndex]?.[colIndex] === null}
                               className={`w-full h-12 rounded-xl font-bold transition-all ${
-                                currentCell?.row === rowIndex && currentCell?.col === colIndex
+                                currentCell?.row === rowIndex && currentCell?.col === colIndex && currentCell?.type === 'points'
                                   ? "ring-2 ring-primary/50"
                                   : ""
                               } ${
                                 results[rowIndex]?.[colIndex] === true ? "bg-green-600/10" : 
                                 results[rowIndex]?.[colIndex] === false ? "bg-red-600/10" : 
                                 "bg-secondary"
-                              } ${predictions[rowIndex]?.[colIndex] === null ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:bg-secondary/80"} ${pts > 0 ? "text-green-600 font-bold" : pts < 0 ? "text-red-600 font-bold" : "text-muted-foreground"}`}
+                              } ${!selectedPlayers.every((p, idx) => inactivePlayers.includes(p.id) || (predictions[rowIndex]?.[idx] !== null && predictions[rowIndex]?.[idx] !== undefined)) ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-secondary/80"} ${pts > 0 ? "text-green-600 font-bold" : pts < 0 ? "text-red-600 font-bold" : "text-muted-foreground"}`}
                               data-row={rowIndex}
                               data-col={colIndex}
                               data-type="points"
@@ -2012,8 +2069,9 @@ export default function NewMatch() {
           onMarkResult={handleMarkResult}
           scoringSystem={scoringSystem}
           penaltyMode={penaltyMode}
-          customPoints={customPoints}
+          customPoints={customPoints as number[]}
           calcPoints={calcPoints}
+          type={currentCell.type}
         />
       )}
     </div>

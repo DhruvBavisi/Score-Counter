@@ -21,6 +21,7 @@ interface NumpadProps {
   penaltyMode?: boolean;
   customPoints?: number[];
   calcPoints?: (pred: number, correct: boolean, system: string, penalty: boolean, custom: number[]) => number;
+  type?: string;
 }
 
 export function Numpad({ 
@@ -40,7 +41,8 @@ export function Numpad({
   scoringSystem,
   penaltyMode,
   customPoints,
-  calcPoints
+  calcPoints,
+  type
 }: NumpadProps) {
   const handleButton = (btn: string) => {
     if (btn === 'C') {
@@ -123,7 +125,7 @@ export function Numpad({
           }
         }}
       >
-        {gameType === 'judgement' && predictionValue !== null && predictionValue !== undefined && value === '' ? (
+        {gameType === 'judgement' && type !== 'customPoint' && predictionValue !== null && predictionValue !== undefined && value === '' ? (
           <div className="p-2">
             <p className="text-center text-lg mb-4 text-muted-foreground">
               Prediction for <span className="font-bold text-foreground">{playerName}</span>: <span className="font-bold text-primary text-xl">{predictionValue}</span>
@@ -170,7 +172,7 @@ export function Numpad({
         ) : (
           <>
         {/* Quick Points */}
-        {gameType !== 'judgement' && (
+        {gameType !== 'judgement' && type !== 'customPoint' && (
           <div className="space-y-2 mb-4">
             {quickPoints.map((row, i) => (
               <div key={i} className="grid grid-cols-3 gap-2 sm:gap-3">
