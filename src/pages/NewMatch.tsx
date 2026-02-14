@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, Fragment } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
@@ -39,6 +39,12 @@ interface DraftGame {
   gameFinished: boolean;
   winnerRule: 'highest' | 'lowest';
   numRounds: number;
+  gameType?: string;
+  scoringSystem?: 'standard' | 'progressive' | 'dynamic' | 'custom';
+  penaltyMode?: boolean;
+  customPoints?: number[];
+  predictions?: (number | null)[][];
+  results?: (boolean | null)[][];
 }
 
 export default function NewMatch() {
@@ -55,7 +61,7 @@ export default function NewMatch() {
   // Scoreboard state
   const [gameStarted, setGameStarted] = useState(false);
   const [scores, setScores] = useState<number[][]>([]);
-  const [currentCell, setCurrentCell] = useState<{ row: number; col: number } | null>(null);
+  const [currentCell, setCurrentCell] = useState<{ row: number; col: number; type: 'prediction' | 'points' | 'score' } | null>(null);
   const [numpadValue, setNumpadValue] = useState('');
   const [gameFinished, setGameFinished] = useState(false);
   const [inactivePlayers, setInactivePlayers] = useState<string[]>([]);
@@ -72,9 +78,69 @@ export default function NewMatch() {
   const [isEditing, setIsEditing] = useState(false);
   const [savedScores, setSavedScores] = useState<number[][]>([]);
   const [savedPlayers, setSavedPlayers] = useState<Player[]>([]);
+  const [savedScoringSystem, setSavedScoringSystem] = useState<string>('');
+  const [savedPenaltyMode, setSavedPenaltyMode] = useState<boolean>(false);
+  const [savedCustomPoints, setSavedCustomPoints] = useState<number[]>([]);
   const [newPlayerName, setNewPlayerName] = useState('');
   const [newPlayerGroup, setNewPlayerGroup] = useState('');
   const [matchName, setMatchName] = useState('');
+  const [gameType, setGameType] = useState<'standard' | 'judgement'>('standard');
+  const [scoringSystem, setScoringSystem] = useState<'standard' | 'progressive' | 'dynamic' | 'custom'>('standard');
+  const [penaltyMode, setPenaltyMode] = useState(false);
+  const [customPoints, setCustomPoints] = useState<number[]>([10, 15, 20, 30, 40]);
+  const [predictions, setPredictions] = useState<(number | null)[][]>([]);
+  const [results, setResults] = useState<(boolean | null)[][]>([]);
+
+  const calcPoints = (pred: number, correct: boolean, system: string, penalty: boolean, custom: number[]) => {
+    const m = correct ? 1 : (penalty ? -1 : 0);
+    if (!correct && !penalty) return 0;
+    if (system === 'standard') return m * (pred === 0 ? 10 : pred * 10);
+    if (system === 'progressive') return m * (10 + pred);
+    if (system === 'dynamic') {
+      if (pred === 0) return m * 10;
+      if (pred === 1) return m * 15;
+      if (pred === 2) return m * 20;
+      return m * (30 + (pred - 3) * 10);
+    }
+    if (system === 'custom') {
+      if (pred <= 4) return m * custom[pred];
+      let val = custom[4];
+      const d = [custom[2] - custom[1], custom[3] - custom[2], custom[4] - custom[3]];
+      for (let i = 5; i <= pred; i++) val += d[(i - 5) % 3];
+      return m * val;
+    }
+    return 0;
+  };
+
+  const recalculateJudgementPoints = (
+    currentScores: number[][],
+    currentPredictions: (number | null)[][],
+    currentResults: (boolean | null)[][],
+    playersCount: number
+  ) => {
+    const newScores: number[][] = [];
+    
+    for (let r = 0; r < currentScores.length; r++) {
+      const roundScores: number[] = [];
+      
+      for (let c = 0; c < playersCount; c++) {
+        const pred = currentPredictions[r]?.[c];
+        const result = currentResults[r]?.[c];
+        
+        // Only recalculate if prediction exists and result is marked
+        if (pred !== null && pred !== undefined && result !== null && result !== undefined) {
+          const pts = calcPoints(pred, result, scoringSystem, penaltyMode, customPoints);
+          roundScores.push(pts);
+        } else {
+          roundScores.push(currentScores[r]?.[c] || 0);
+        }
+      }
+      
+      newScores.push(roundScores);
+    }
+    
+    return newScores;
+  };
 
   // Prevent iOS/mobile swipe-from-left-edge back navigation
   useEffect(() => {
@@ -406,11 +472,17 @@ export default function NewMatch() {
         gameStarted,
         gameFinished,
         winnerRule,
-        numRounds
+        numRounds,
+        gameType,
+        scoringSystem,
+        penaltyMode,
+        customPoints,
+        predictions,
+        results
       };
       localStorage.setItem('game_draft', JSON.stringify(draft));
     }
-  }, [scores, selectedPlayers, inactivePlayers, matchName, gameStarted, gameFinished, winnerRule, numRounds]);
+  }, [scores, selectedPlayers, inactivePlayers, matchName, gameStarted, gameFinished, winnerRule, numRounds, gameType, scoringSystem, penaltyMode, customPoints, predictions, results]);
 
   const clearDraft = () => {
     localStorage.removeItem('game_draft');
@@ -430,6 +502,12 @@ export default function NewMatch() {
           setInactivePlayers(draft.inactivePlayers);
           setWinnerRule(draft.winnerRule);
           setNumRounds(draft.numRounds);
+          if (draft.gameType) setGameType(draft.gameType as any);
+          if (draft.scoringSystem) setScoringSystem(draft.scoringSystem);
+          if (draft.penaltyMode !== undefined) setPenaltyMode(draft.penaltyMode);
+          if (draft.customPoints) setCustomPoints(draft.customPoints);
+          if (draft.predictions) setPredictions(draft.predictions);
+          if (draft.results) setResults(draft.results);
           setGameStarted(true);
           setGameFinished(false);
           
@@ -530,11 +608,13 @@ export default function NewMatch() {
     if (index === -1) return;
     setSelectedPlayers((prev) => prev.filter((p) => p.id !== playerId));
     setScores((prev) => prev.map((round) => round.filter((_, i) => i !== index)));
+    setPredictions((prev) => prev.map((round) => round.filter((_, i) => i !== index)));
+    setResults((prev) => prev.map((round) => round.filter((_, i) => i !== index)));
     setInactivePlayers((prev) => prev.filter((id) => id !== playerId));
     setCurrentCell((prev) => {
       if (!prev) return prev;
       if (prev.col === index) return null;
-      if (prev.col > index) return { row: prev.row, col: prev.col - 1 };
+      if (prev.col > index) return { ...prev, col: prev.col - 1 };
       return prev;
     });
   };
@@ -555,64 +635,171 @@ export default function NewMatch() {
     }
 
     if (isEditing && savedScores.length > 0) {
-      // Map previous scores to players by ID
+      // Map previous data to players by ID
       const playerScoresMap = new Map<string, number[]>();
-      // savedPlayers should match the columns of savedScores
-      // If savedPlayers is empty (legacy/edge case), we fallback to index mapping (risky but better than crash)
+      const playerPredictionsMap = new Map<string, (number | null)[]>();
+      const playerResultsMap = new Map<string, (boolean | null)[]>();
+      
       const sourcePlayers = savedPlayers.length > 0 ? savedPlayers : selectedPlayers; 
       
       sourcePlayers.forEach((player, index) => {
-        const scoresForPlayer = savedScores.map(round => round[index]);
-        playerScoresMap.set(player.id, scoresForPlayer);
+        playerScoresMap.set(player.id, savedScores.map(round => round[index]));
+        playerPredictionsMap.set(player.id, predictions.map(round => round[index]));
+        playerResultsMap.set(player.id, results.map(round => round[index]));
       });
 
-      // Reconstruct scores for the current selectedPlayers order
-      // We take the max rounds from savedScores to preserve history
       const roundsCount = savedScores.length;
-      
       const newScores: number[][] = [];
+      const newPredictions: (number | null)[][] = [];
+      const newResults: (boolean | null)[][] = [];
+
       for (let r = 0; r < roundsCount; r++) {
-        const newRound: number[] = [];
+        const scoreRound: number[] = [];
+        const predRound: (number | null)[] = [];
+        const resRound: (boolean | null)[] = [];
+
         selectedPlayers.forEach(player => {
-          const pScores = playerScoresMap.get(player.id);
-          // If player existed and has a score for this round, use it. Otherwise 0.
-          if (pScores && pScores[r] !== undefined) {
-            newRound.push(pScores[r]);
-          } else {
-            newRound.push(0);
-          }
+          scoreRound.push(playerScoresMap.get(player.id)?.[r] ?? 0);
+          predRound.push(playerPredictionsMap.get(player.id)?.[r] ?? null);
+          resRound.push(playerResultsMap.get(player.id)?.[r] ?? null);
         });
-        newScores.push(newRound);
+
+        newScores.push(scoreRound);
+        newPredictions.push(predRound);
+        newResults.push(resRound);
       }
       
-      // If rounds increased via settings
-      if (numRounds > newScores.length) {
-        const extraRounds = Array(numRounds - newScores.length).fill(null).map(() => Array(selectedPlayers.length).fill(0));
-        setScores([...newScores, ...extraRounds]);
-      } else {
-        // If rounds decreased, we slice.
-        setScores(newScores.slice(0, numRounds));
+      let finalScores = newScores;
+
+      // Detect settings changes for Judgement game
+      if (gameType === 'judgement') {
+        const customChanged = JSON.stringify(savedCustomPoints) !== JSON.stringify(customPoints);
+        const settingsChanged = 
+          savedScoringSystem !== scoringSystem || 
+          savedPenaltyMode !== penaltyMode || 
+          (scoringSystem === 'custom' && customChanged);
+
+        if (settingsChanged) {
+          finalScores = recalculateJudgementPoints(newScores, newPredictions, newResults, selectedPlayers.length);
+          toast.info('Points recalculated based on new settings');
+        }
       }
+
+      // If rounds increased/decreased
+      if (numRounds > finalScores.length) {
+        const extraRounds = numRounds - finalScores.length;
+        const extraScores = Array(extraRounds).fill(null).map(() => Array(selectedPlayers.length).fill(0));
+        const extraPreds = Array(extraRounds).fill(null).map(() => Array(selectedPlayers.length).fill(null));
+        const extraResults = Array(extraRounds).fill(null).map(() => Array(selectedPlayers.length).fill(null));
+        
+        setScores([...finalScores, ...extraScores]);
+        setPredictions([...newPredictions, ...extraPreds]);
+        setResults([...newResults, ...extraResults]);
+      } else {
+        setScores(finalScores.slice(0, numRounds));
+        setPredictions(newPredictions.slice(0, numRounds));
+        setResults(newResults.slice(0, numRounds));
+      }
+
       setIsEditing(false);
+      clearDraft();
     } else {
       // New game
       setScores(Array(numRounds).fill(null).map(() => Array(selectedPlayers.length).fill(0)));
+      if (gameType === 'judgement') {
+        setPredictions(Array(numRounds).fill(null).map(() => Array(selectedPlayers.length).fill(null)));
+        setResults(Array(numRounds).fill(null).map(() => Array(selectedPlayers.length).fill(null)));
+      }
       clearDraft(); // Clear any previous draft when starting a fresh game
     }
     setGameStarted(true);
   };
 
+  const openCell = (r: number, c: number) => {
+    if (gameType !== 'judgement') {
+      openNumpad(r, c);
+      return;
+    }
+
+    if (results[r]?.[c] !== undefined && results[r]?.[c] !== null) {
+      // If result already marked, clicking prediction cell does nothing
+      return;
+    }
+
+    setCurrentCell({ row: r, col: c, type: 'prediction' });
+    setNumpadValue(predictions[r]?.[c]?.toString() || '');
+    scrollActiveCellIntoView(r, c, 'prediction');
+  };
+
+  const openResultMarking = (r: number, c: number) => {
+    if (predictions[r]?.[c] === undefined || predictions[r]?.[c] === null) return;
+    setCurrentCell({ row: r, col: c, type: 'points' });
+    setNumpadValue(''); // Clear numpad value so it shows result marking buttons
+    scrollActiveCellIntoView(r, c, 'points');
+  };
+
+  const handleMarkResult = (correct: boolean) => {
+    if (!currentCell) return;
+    const { row, col } = currentCell;
+    const pred = predictions[row][col];
+    if (pred === null || pred === undefined) return;
+
+    const pts = calcPoints(pred, correct, scoringSystem, penaltyMode, customPoints);
+
+    setResults(p => {
+      const n = [...p];
+      n[row] = [...(n[row] || [])];
+      n[row][col] = correct;
+      return n;
+    });
+
+    setScores(p => {
+      const n = [...p];
+      n[row] = [...(n[row] || [])];
+      n[row][col] = pts;
+      return n;
+    });
+
+    // Move to next points cell in same round
+    for (let nextCol = col + 1; nextCol < selectedPlayers.length; nextCol++) {
+      if (!inactivePlayers.includes(selectedPlayers[nextCol].id)) {
+        setCurrentCell({ row, col: nextCol, type: "points" });
+        setNumpadValue('');
+        scrollActiveCellIntoView(row, nextCol, "points");
+        return;
+      }
+    }
+
+    setCurrentCell(null);
+  };
+
   const openNumpad = (row: number, col: number) => {
     const playerId = selectedPlayers[col]?.id;
     if (playerId && inactivePlayers.includes(playerId)) return;
-    setCurrentCell({ row, col });
+    setCurrentCell({ row, col, type: 'score' });
     setNumpadValue(scores[row][col].toString());
-    scrollActiveCellIntoView(row, col);
+    scrollActiveCellIntoView(row, col, 'score');
   };
 
   const handleNumpadChange = (next: string) => {
     setNumpadValue(next);
     if (!currentCell) return;
+
+    if (gameType === 'judgement') {
+      if (currentCell.type === 'prediction') {
+        const val = next === '' ? null : parseInt(next, 10);
+        if (next !== '' && isNaN(val as number)) return;
+        
+        setPredictions(p => {
+          const n = [...p];
+          n[currentCell.row] = [...(n[currentCell.row] || [])];
+          n[currentCell.row][currentCell.col] = val;
+          return n;
+        });
+      }
+      return;
+    }
+
     const val = next === '' ? 0 : parseInt(next, 10);
     if (isNaN(val)) return;
     const updated = [...scores];
@@ -620,10 +807,10 @@ export default function NewMatch() {
     setScores(updated);
   };
 
-    const scrollActiveCellIntoView = (row: number, col: number) => {
+    const scrollActiveCellIntoView = (row: number, col: number, type: string) => {
     const container = scrollRef.current;
     const cell = document.querySelector(
-      `button[data-row="${row}"][data-col="${col}"]`
+      `button[data-row="${row}"][data-col="${col}"][data-type="${type}"]`
     ) as HTMLButtonElement | null;
 
     if (!container || !cell) return;
@@ -673,7 +860,7 @@ export default function NewMatch() {
     if (currentCell) {
       // Small delay to allow Numpad to mount/render
       const timer = setTimeout(() => {
-        scrollActiveCellIntoView(currentCell.row, currentCell.col);
+        scrollActiveCellIntoView(currentCell.row, currentCell.col, currentCell.type);
       }, 100);
       return () => clearTimeout(timer);
     }
@@ -681,36 +868,116 @@ export default function NewMatch() {
 
   const moveCursor = (dir: 'up' | 'down' | 'left' | 'right') => {
     if (!currentCell) return;
-    const { row, col } = currentCell;
+    const { row, col, type } = currentCell;
     const maxRow = scores.length - 1;
     const maxCol = selectedPlayers.length - 1;
+
+    if (gameType === 'judgement') {
+      if (dir === 'up') {
+        if (type === 'points') {
+          setCurrentCell({ row, col, type: 'prediction' });
+          setNumpadValue(predictions[row][col]?.toString() || '');
+        } else if (row > 0) {
+          setCurrentCell({ row: row - 1, col, type: 'points' });
+          setNumpadValue('');
+        }
+      } else if (dir === 'down') {
+        if (type === 'prediction') {
+          setCurrentCell({ row, col, type: 'points' });
+          setNumpadValue('');
+        } else if (row < maxRow) {
+          setCurrentCell({ row: row + 1, col, type: 'prediction' });
+          setNumpadValue(predictions[row + 1][col]?.toString() || '');
+        }
+      } else if (dir === 'left') {
+        let next = col - 1;
+        while (next >= 0 && inactivePlayers.includes(selectedPlayers[next].id)) next--;
+        if (next >= 0) {
+          setCurrentCell({ row, col: next, type });
+          setNumpadValue(type === 'prediction' ? predictions[row][next]?.toString() || '' : '');
+          scrollActiveCellIntoView(row, next, type);
+        }
+      } else if (dir === 'right') {
+        let next = col + 1;
+        while (next <= maxCol && inactivePlayers.includes(selectedPlayers[next].id)) next++;
+        if (next <= maxCol) {
+          setCurrentCell({ row, col: next, type });
+          setNumpadValue(type === 'prediction' ? predictions[row][next]?.toString() || '' : '');
+          scrollActiveCellIntoView(row, next, type);
+        }
+      }
+      return;
+    }
+
     if (dir === 'up' && row > 0) {
-      setCurrentCell({ row: row - 1, col });
+      setCurrentCell({ row: row - 1, col, type: 'score' });
       setNumpadValue(scores[row - 1][col].toString());
     } else if (dir === 'down' && row < maxRow) {
-      setCurrentCell({ row: row + 1, col });
+      setCurrentCell({ row: row + 1, col, type: 'score' });
       setNumpadValue(scores[row + 1][col].toString());
     } else if (dir === 'left') {
       let next = col - 1;
       while (next >= 0 && inactivePlayers.includes(selectedPlayers[next].id)) next--;
       if (next >= 0) {
-        setCurrentCell({ row, col: next });
+        setCurrentCell({ row, col: next, type: 'score' });
         setNumpadValue(scores[row][next].toString());
-        scrollActiveCellIntoView(row, next);
+        scrollActiveCellIntoView(row, next, 'score');
       }
     } else if (dir === 'right') {
       let next = col + 1;
       while (next <= maxCol && inactivePlayers.includes(selectedPlayers[next].id)) next++;
       if (next <= maxCol) {
-        setCurrentCell({ row, col: next });
+        setCurrentCell({ row, col: next, type: 'score' });
         setNumpadValue(scores[row][next].toString());
-        scrollActiveCellIntoView(row, next);
+        scrollActiveCellIntoView(row, next, 'score');
       }
     }
   };
 
   const handleNumpadEnter = () => {
     if (!currentCell) return;
+
+    if (gameType === "judgement") {
+      const { row, col, type } = currentCell;
+      const value = numpadValue === '' ? null : parseInt(numpadValue, 10);
+
+      if (type === "prediction") {
+        if (numpadValue !== '' && isNaN(value as number)) return;
+        
+        setPredictions((p) => {
+          const n = [...p];
+          n[row] = [...(n[row] || [])];
+          n[row][col] = value;
+          return n;
+        });
+
+        // Move to next prediction cell in same round
+        for (let nextCol = col + 1; nextCol < selectedPlayers.length; nextCol++) {
+          if (!inactivePlayers.includes(selectedPlayers[nextCol].id)) {
+            setCurrentCell({ row, col: nextCol, type: "prediction" });
+            setNumpadValue(predictions[row]?.[nextCol]?.toString() || "");
+            scrollActiveCellIntoView(row, nextCol, "prediction");
+            return;
+          }
+        }
+
+        // If we reached the end but some cells are still empty, wrap around to the first empty cell
+        for (let nextCol = 0; nextCol <= col; nextCol++) {
+          if (!inactivePlayers.includes(selectedPlayers[nextCol].id) && 
+              (predictions[row]?.[nextCol] === null || predictions[row]?.[nextCol] === undefined)) {
+            setCurrentCell({ row, col: nextCol, type: "prediction" });
+            setNumpadValue("");
+            scrollActiveCellIntoView(row, nextCol, "prediction");
+            return;
+          }
+        }
+
+        setCurrentCell(null);
+      } else if (type === "points") {
+        openResultMarking(row, col);
+      }
+      return;
+    }
 
     const value = numpadValue === '' ? 0 : parseInt(numpadValue, 10);
     if (isNaN(value)) return;
@@ -728,18 +995,18 @@ export default function NewMatch() {
     };
     for (let c = col + 1; c < numPlayers; c++) {
       if (isActive(c)) {
-        setCurrentCell({ row, col: c });
+        setCurrentCell({ row, col: c, type: "score" });
         setNumpadValue(newScores[row][c].toString());
-        scrollActiveCellIntoView(row, c);
+        scrollActiveCellIntoView(row, c, "score");
         return;
       }
     }
     for (let r = row + 1; r < newScores.length; r++) {
       for (let c = 0; c < numPlayers; c++) {
         if (isActive(c)) {
-          setCurrentCell({ row: r, col: c });
+          setCurrentCell({ row: r, col: c, type: "score" });
           setNumpadValue(newScores[r][c].toString());
-          scrollActiveCellIntoView(r, c);
+          scrollActiveCellIntoView(r, c, "score");
           return;
         }
       }
@@ -863,17 +1130,101 @@ export default function NewMatch() {
               <button
                 onClick={() => {
                   setWinnerRule('highest');
-                  setMatchName('Kachu Phool');
-                  toast.success('Kachu Phool selected (highest wins)');
+                  setMatchName('Judgement');
+                  setGameType('judgement');
+                  toast.success('Judgement selected');
                 }}
-                className="p-4 rounded-2xl border-2 transition-all border-primary/40 bg-primary/10 hover:bg-primary/15"
+                className={`p-4 rounded-2xl border-2 transition-all ${
+                  matchName === 'Judgement'
+                    ? 'border-primary bg-primary/10'
+                    : 'border-primary/40 bg-primary/10 hover:bg-primary/15'
+                }`}
               >
                 <div className="text-left">
-                  <p className="text-sm font-semibold text-foreground">Kachu Phool</p>
+                  <p className="text-sm font-semibold text-foreground">Judgement</p>
                   <p className="text-xs text-muted-foreground mt-1">Highest score wins</p>
                 </div>
               </button>
             </div>
+
+            <AnimatePresence>
+              {matchName === 'Judgement' && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="overflow-hidden"
+                >
+                  <div className="space-y-4 mt-4 p-4 rounded-xl bg-secondary/50 border border-border">
+                    <div>
+                      <h3 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">Scoring System</h3>
+                      <div className="grid grid-cols-2 gap-3">
+                        {['standard', 'progressive', 'dynamic', 'custom'].map((s) => (
+                          <div key={s} className="flex flex-col gap-1.5">
+                            <button
+                              onClick={() => setScoringSystem(s as any)}
+                              className={`p-3 rounded-xl border-2 text-sm font-semibold capitalize transition-all ${
+                                scoringSystem === s ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/30'
+                              }`}
+                            >
+                              {s === 'dynamic' ? 'Dynamic' : s}
+                            </button>
+                            <p className="text-[10px] text-muted-foreground text-center leading-tight px-1">
+                              {s === 'standard' ? 'Earn 10 pts for 0 bids, or 10x your bid for success.' :
+                               s === 'progressive' ? 'Earn 10 pts for 0 bids, or 10 + your bid for success.' :
+                               s === 'dynamic' ? 'Base 10, 15, 20 pts, then +10 for each extra bid.' :
+                               'Set specific points for 0, 1, 2, 3, and 4 successful bids.'}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-semibold text-foreground">Negative Points</span>
+                          <span className="text-[10px] text-muted-foreground">Deduct points for wrong predictions instead of 0.</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={penaltyMode}
+                            onChange={(e) => setPenaltyMode(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                        </label>
+                      </div>
+                    </div>
+
+                    {scoringSystem === 'custom' && (
+                      <div>
+                        <h3 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">Custom Points</h3>
+                        <div className="grid grid-cols-5 gap-2">
+                          {[0, 1, 2, 3, 4].map((i) => (
+                            <div key={i} className="flex flex-col gap-1">
+                              <span className="text-[10px] text-center text-muted-foreground">Pred {i}</span>
+                              <input
+                                type="number"
+                                value={customPoints[i]}
+                                onChange={(e) => {
+                                  const n = [...customPoints];
+                                  n[i] = +e.target.value;
+                                  setCustomPoints(n);
+                                }}
+                                className="w-[44px] px-1 py-2 rounded-lg bg-background border border-border text-center text-sm focus:border-primary outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </section>
           {/* Match Name */}
           <section>
@@ -1148,6 +1499,9 @@ export default function NewMatch() {
                   setIsEditing(true);
                   setSavedScores(scores);
                   setSavedPlayers(selectedPlayers);
+                  setSavedScoringSystem(scoringSystem);
+                  setSavedPenaltyMode(penaltyMode);
+                  setSavedCustomPoints([...customPoints]);
                   setGameStarted(false);
                 }}
                 className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-semibold text-foreground hover:bg-primary/10 focus:bg-primary/10 transition-colors"
@@ -1321,11 +1675,11 @@ export default function NewMatch() {
           <table className="w-full border-separate min-w-max no-border-spacing">
             <thead className="sticky top-0 z-50 bg-background shadow-none">
               <tr>
-                <th className="p-2 text-center text-xs text-muted-foreground font-normal sticky left-0 top-0 z-[60] bg-background border-b border-border border-r">Round</th>
+                <th className="p-2 text-center text-xs text-muted-foreground font-normal sticky left-0 top-0 z-50 bg-background border-b border-border border-r-2 shadow-lg">Round</th>
                 {selectedPlayers.map((player, i) => (
                   <th
                     key={player.id}
-                    className={`p-2 text-center min-w-[80px] sticky top-0 z-50 bg-background border-b border-border ${currentCell?.col === i ? 'text-primary' : 'text-foreground'}`}
+                    className={`p-2 text-center min-w-[80px] sticky top-0 z-40 bg-background border-b border-border ${currentCell?.col === i ? 'text-primary' : 'text-foreground'}`}
                   >
                     <div className="flex flex-col items-center gap-1 no-select">  
                       {i === winnerIndex && gameFinished && <Crown className="w-4 h-4 crown-bounce text-yellow-500" />}
@@ -1411,33 +1765,141 @@ export default function NewMatch() {
                     </div>
                   </th>
                 ))}
+                <th className="sticky right-0 top-0 z-50 bg-background shadow-lg border-l-2 border-border p-2 text-center text-xs text-muted-foreground font-bold">TOTAL</th>
               </tr>
             </thead>
               <tbody>
                 {scores.map((round, rowIndex) => (
-                  <tr key={rowIndex} className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''}`}>
-                    <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-40 bg-background border-r border-border">R{rowIndex + 1}</td>
-                    {round.map((score, colIndex) => (
-                      <td key={colIndex} className="p-1">
-                        <button
-                          onClick={() => !gameFinished && openNumpad(rowIndex, colIndex)}
-                          disabled={gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id)}
-                        className={`w-full h-12 rounded-xl font-display font-bold text-lg transition-all bg-secondary text-foreground hover:bg-secondary/80 ${gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) ? 'cursor-default opacity-50' : ''} ${currentCell?.col === colIndex && currentCell?.row === rowIndex ? 'ring-2 ring-primary/50' : ''}`}
-                        data-row={rowIndex}
-                        data-col={colIndex}
-                      >
-                        {score}
-                      </button>
-                    </td>
-                  ))}
-                </tr>
+                  gameType === 'judgement' ? (
+                    <Fragment key={rowIndex}>
+                      <tr className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''} bg-secondary/50`}>
+                        <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">R{rowIndex + 1} Pred</td>
+                        {round.map((_, colIndex) => (
+                          <td key={colIndex} className="p-1">
+                            <button
+                              onClick={() => !gameFinished && openCell(rowIndex, colIndex)}
+                              disabled={gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) || results[rowIndex]?.[colIndex] !== null}
+                              className={`w-full h-12 rounded-xl font-display font-bold text-lg transition-all ${
+                                results[rowIndex]?.[colIndex] === true ? 'bg-green-600/10' : 
+                                results[rowIndex]?.[colIndex] === false ? 'bg-red-600/10' : 
+                                'bg-secondary'
+                              } text-foreground hover:bg-secondary/80 flex items-center justify-center gap-1 ${gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) ? 'cursor-default opacity-50' : ''} ${currentCell?.col === colIndex && currentCell?.row === rowIndex ? 'ring-2 ring-primary/50' : ''}`}
+                              data-row={rowIndex}
+                              data-col={colIndex}
+                              data-type="prediction"
+                            >
+                              {currentCell?.row === rowIndex && currentCell?.col === colIndex && results[rowIndex]?.[colIndex] === null
+                                ? (numpadValue === '' ? (predictions[rowIndex]?.[colIndex] ?? '-') : numpadValue)
+                                : (predictions[rowIndex]?.[colIndex] ?? '-')}
+                              {results[rowIndex]?.[colIndex] === true && <Check className="w-4 h-4 text-green-600" />}
+                              {results[rowIndex]?.[colIndex] === false && <X className="w-4 h-4 text-red-600" />}
+                            </button>
+                          </td>
+                        ))}
+                        <td className="p-2 text-center sticky right-0 z-30 bg-background shadow-lg border-l-2 border-border font-bold">
+                          <div className="flex flex-col items-center">
+                            <span className="text-foreground">
+                              {predictions[rowIndex]?.reduce((sum, p) => sum + (p || 0), 0)}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground font-normal leading-none">
+                              ({predictions[rowIndex]?.filter((p) => p !== null && p !== undefined).length || 0}/{selectedPlayers.length})
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''} ${
+                        selectedPlayers.every((p, idx) => inactivePlayers.includes(p.id) || (predictions[rowIndex]?.[idx] !== null && predictions[rowIndex]?.[idx] !== undefined))
+                          ? ""
+                          : "opacity-60"
+                      } transition-all duration-300`}>
+                        <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">R{rowIndex + 1} Pts</td>
+                        {round.map((pts, colIndex) => (
+                          <td key={colIndex} className="p-1">
+                            <button
+                              onClick={() => {
+                                if (!gameFinished && predictions[rowIndex]?.[colIndex] !== null) {
+                                  // Check if all active players in this round have entered predictions
+                                  const allPredictionsEntered = selectedPlayers.every((p, idx) => 
+                                    inactivePlayers.includes(p.id) || (predictions[rowIndex]?.[idx] !== null && predictions[rowIndex]?.[idx] !== undefined)
+                                  );
+                                  
+                                  if (allPredictionsEntered) {
+                                    openResultMarking(rowIndex, colIndex);
+                                  } else {
+                                    toast.error("Finish all bids first!", {
+                                      description: "All players must enter their predictions before results can be marked.",
+                                      duration: 2000,
+                                    });
+                                  }
+                                }
+                              }}
+                              disabled={gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) || predictions[rowIndex]?.[colIndex] === null}
+                              className={`w-full h-12 rounded-xl font-bold transition-all ${
+                                currentCell?.row === rowIndex && currentCell?.col === colIndex
+                                  ? "ring-2 ring-primary/50"
+                                  : ""
+                              } ${
+                                results[rowIndex]?.[colIndex] === true ? "bg-green-600/10" : 
+                                results[rowIndex]?.[colIndex] === false ? "bg-red-600/10" : 
+                                "bg-secondary"
+                              } ${predictions[rowIndex]?.[colIndex] === null ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:bg-secondary/80"} ${pts > 0 ? "text-green-600 font-bold" : pts < 0 ? "text-red-600 font-bold" : "text-muted-foreground"}`}
+                              data-row={rowIndex}
+                              data-col={colIndex}
+                              data-type="points"
+                            >
+                              {results[rowIndex]?.[colIndex] !== null && results[rowIndex]?.[colIndex] !== undefined ? (pts > 0 ? "+" : "") + pts : "-"}
+                            </button>
+                          </td>
+                        ))}
+                        <td className="p-2 text-center sticky right-0 z-30 bg-background shadow-lg border-l-2 border-border font-bold">
+                          {results[rowIndex]?.some((r) => r !== null && r !== undefined) && (
+                            <div className="flex flex-col items-center">
+                              <span className="text-green-600">{results[rowIndex]?.filter(Boolean).length || 0}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal leading-none">correct</span>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    </Fragment>
+                  ) : (
+                    <tr key={rowIndex} className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''}`}>
+                      <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">R{rowIndex + 1}</td>
+                      {round.map((score, colIndex) => (
+                        <td key={colIndex} className="p-1">
+                          <button
+                            onClick={() => !gameFinished && openNumpad(rowIndex, colIndex)}
+                            disabled={gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id)}
+                            className={`w-full h-12 rounded-xl font-display font-bold text-lg transition-all bg-secondary text-foreground hover:bg-secondary/80 ${gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) ? 'cursor-default opacity-50' : ''} ${currentCell?.col === colIndex && currentCell?.row === rowIndex ? 'ring-2 ring-primary/50' : ''}`}
+                            data-row={rowIndex}
+                            data-col={colIndex}
+                            data-type="score"
+                          >
+                            {currentCell?.row === rowIndex && currentCell?.col === colIndex
+                              ? (numpadValue === '' ? score : numpadValue)
+                              : score}
+                          </button>
+                        </td>
+                      ))}
+                      <td className="p-2 text-center sticky right-0 z-30 bg-background shadow-lg border-l-2 border-border font-bold">
+                        <span className="text-muted-foreground text-sm font-normal">
+                          {round.reduce((sum, s) => sum + (s || 0), 0)}
+                        </span>
+                      </td>
+                    </tr>
+                  )
                 ))}
                 {/* Add Round Placeholder Row */}
                 {!gameFinished && (
                   <tr className="opacity-60">
-                    <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-40 bg-background border-r border-border">
+                    <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">
                       <button
-                        onClick={() => setScores(prev => [...prev, Array(selectedPlayers.length).fill(0)])}
+                        onClick={() => {
+                          setScores(prev => [...prev, Array(selectedPlayers.length).fill(0)]);
+                          if (gameType === 'judgement') {
+                            setPredictions(prev => [...prev, Array(selectedPlayers.length).fill(null)]);
+                            setResults(prev => [...prev, Array(selectedPlayers.length).fill(null)]);
+                          }
+                        }}
                         className="inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md border border-border bg-secondary hover:bg-secondary/80 text-foreground"
                       >
                         R{scores.length + 1} +
@@ -1453,12 +1915,13 @@ export default function NewMatch() {
                       </button>
                     </td>
                   ))}
+                  <td className="p-2 text-center sticky right-0 z-30 bg-background shadow-lg border-l-2 border-border font-bold" />
                 </tr>
               )}
               </tbody>
               <tfoot className="sticky bottom-0 z-50 bg-background shadow-none">
                 <tr className="border-t-2 border-border">
-                  <td className="p-2 text-sm font-bold text-foreground text-center sticky left-0 z-40 bg-background border-r border-border">Total</td>
+                  <td className="p-2 text-sm font-bold text-foreground text-center sticky left-0 z-50 bg-background border-r-2 border-border shadow-lg">Total</td>
                   {totals.map((total, i) => (
                     <td
                       key={i}
@@ -1467,6 +1930,9 @@ export default function NewMatch() {
                     {total}
                   </td>
                 ))}
+                <td className="p-2 text-center sticky right-0 z-50 bg-background shadow-lg border-l-2 border-border font-bold text-foreground">
+                  {totals.reduce((a, b) => a + b, 0)}
+                </td>
               </tr>
             </tfoot>
           </table>
@@ -1541,6 +2007,13 @@ export default function NewMatch() {
           colIndex={currentCell.col}
           playerName={selectedPlayers[currentCell.col]?.name}
           matchName={matchName}
+          gameType={gameType}
+          predictionValue={predictions[currentCell.row]?.[currentCell.col]}
+          onMarkResult={handleMarkResult}
+          scoringSystem={scoringSystem}
+          penaltyMode={penaltyMode}
+          customPoints={customPoints}
+          calcPoints={calcPoints}
         />
       )}
     </div>

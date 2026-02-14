@@ -1,6 +1,7 @@
  
 
 import { useRef, useEffect, useState } from 'react';
+import { Check, X } from 'lucide-react';
 
 interface NumpadProps {
   value: string;
@@ -13,12 +14,34 @@ interface NumpadProps {
   playerName?: string;
   onPanX?: (dx: number) => void;
   matchName?: string;
+  gameType?: string;
+  predictionValue?: number | null;
+  onMarkResult?: (correct: boolean) => void;
+  scoringSystem?: string;
+  penaltyMode?: boolean;
+  customPoints?: number[];
+  calcPoints?: (pred: number, correct: boolean, system: string, penalty: boolean, custom: number[]) => number;
 }
 
-export function Numpad({ value, onChange, onEnter, onClose, onMove, rowIndex, colIndex, playerName, onPanX, matchName }: NumpadProps) {
-  const isBadamSatti = matchName?.toLowerCase().includes('badam satti');
-  const [mode, setMode] = useState<'standard' | 'badam'>(isBadamSatti ? 'badam' : 'standard');
-
+export function Numpad({ 
+  value, 
+  onChange, 
+  onEnter, 
+  onClose, 
+  onMove, 
+  rowIndex, 
+  colIndex, 
+  playerName, 
+  onPanX, 
+  matchName,
+  gameType,
+  predictionValue,
+  onMarkResult,
+  scoringSystem,
+  penaltyMode,
+  customPoints,
+  calcPoints
+}: NumpadProps) {
   const handleButton = (btn: string) => {
     if (btn === 'C') {
       onChange('');
@@ -34,16 +57,10 @@ export function Numpad({ value, onChange, onEnter, onClose, onMove, rowIndex, co
       onEnter();
     } else {
       // Number buttons
-      if (mode === 'badam') {
-        const current = parseInt(value || '0', 10);
-        const add = parseInt(btn, 10);
-        onChange((current + add).toString());
+      if (value === '0' && btn !== '.') {
+        onChange(btn);
       } else {
-        if (value === '0' && btn !== '.') {
-          onChange(btn);
-        } else {
-          onChange(value + btn);
-        }
+        onChange(value + btn);
       }
     }
   };
@@ -63,14 +80,7 @@ export function Numpad({ value, onChange, onEnter, onClose, onMove, rowIndex, co
     ['7', '8', '9'],
     ['4', '5', '6'],
     ['1', '2', '3'],
-    ['+/-', '0', '←'],
-  ];
-
-  const badamButtons = [
-    ['1', '2', '3', '4'],
-    ['5', '6', '7', '8'],
-    ['9', '10', '11', '12'],
-    ['13'],
+    ['0', '←'],
   ];
 
   const quickPoints = [
@@ -113,35 +123,54 @@ export function Numpad({ value, onChange, onEnter, onClose, onMove, rowIndex, co
           }
         }}
       >
-        
-        {/* Mode Toggle */}
-        <div className="flex justify-center mb-4">
-          <div className="bg-secondary/50 p-1 rounded-2xl flex gap-1 w-full max-w-[200px]">
-            <button
-              onClick={() => setMode('badam')}
-              className={`flex-1 py-1.5 rounded-xl text-sm font-bold transition-all ${
-                mode === 'badam' 
-                  ? 'bg-background text-primary shadow-sm' 
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Badam
-            </button>
-            <button
-              onClick={() => setMode('standard')}
-              className={`flex-1 py-1.5 rounded-xl text-sm font-bold transition-all ${
-                mode === 'standard' 
-                  ? 'bg-background text-primary shadow-sm' 
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              123
-            </button>
-          </div>
-        </div>
+        {gameType === 'judgement' && predictionValue !== null && predictionValue !== undefined && value === '' ? (
+          <div className="p-2">
+            <p className="text-center text-lg mb-4 text-muted-foreground">
+              Prediction for <span className="font-bold text-foreground">{playerName}</span>: <span className="font-bold text-primary text-xl">{predictionValue}</span>
+            </p>
+            <div className="space-y-4">
+              <div className="flex flex-col items-center gap-1">
+                <button 
+                  onClick={() => onMarkResult?.(true)} 
+                  className="w-full h-16 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-bold text-xl flex items-center justify-center gap-3 shadow-lg shadow-green-600/20 active:scale-[0.98] transition-all"
+                >
+                  <Check className="w-8 h-8"/>
+                  <span>CORRECT</span>
+                </button>
+                {calcPoints && (
+                  <span className="text-xs text-green-600 font-semibold">
+                    Gain +{calcPoints(predictionValue, true, scoringSystem || 'standard', penaltyMode || false, customPoints || [10,15,20,30])} points
+                  </span>
+                )}
+              </div>
 
+              <div className="flex flex-col items-center gap-1">
+                <button 
+                  onClick={() => onMarkResult?.(false)} 
+                  className="w-full h-16 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-bold text-xl flex items-center justify-center gap-3 shadow-lg shadow-red-600/20 active:scale-[0.98] transition-all"
+                >
+                  <X className="w-8 h-8"/>
+                  <span>WRONG</span>
+                </button>
+                {calcPoints && (
+                  <span className="text-xs text-red-600 font-semibold">
+                    {penaltyMode ? 'Deduct' : 'Get'} {calcPoints(predictionValue, false, scoringSystem || 'standard', penaltyMode || false, customPoints || [10,15,20,30])} points
+                  </span>
+                )}
+              </div>
+
+              <button
+                onClick={onClose}
+                className="w-full py-2 rounded-xl text-muted-foreground font-semibold hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
         {/* Quick Points */}
-        {!isBadamSatti && (
+        {gameType !== 'judgement' && (
           <div className="space-y-2 mb-4">
             {quickPoints.map((row, i) => (
               <div key={i} className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -165,33 +194,19 @@ export function Numpad({ value, onChange, onEnter, onClose, onMove, rowIndex, co
         )}
 
         {/* Numpad Grid */}
-        {mode === 'standard' ? (
           <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3 sm:mb-4">
             {standardButtons.flat().map((btn) => (
               <button
                 key={btn}
                 onClick={() => handleButton(btn)}
-                className="numpad-btn h-12 sm:h-14 md:h-16 text-lg sm:text-xl font-semibold"
-              >
-                {btn}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4">
-            {badamButtons.flat().map((btn) => (
-              <button
-                key={btn}
-                onClick={() => handleButton(btn)}
                 className={`numpad-btn h-12 sm:h-14 md:h-16 text-lg sm:text-xl font-semibold ${
-                  btn === '13' ? 'col-span-4' : ''
+                  btn === '0' ? 'col-span-1' : btn === '←' ? 'col-span-2' : ''
                 }`}
               >
                 {btn}
               </button>
             ))}
           </div>
-        )}
 
         {/* Bottom Row */}
         <div className="grid grid-cols-2 gap-2 sm:gap-3">
@@ -208,6 +223,8 @@ export function Numpad({ value, onChange, onEnter, onClose, onMove, rowIndex, co
             Enter
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
