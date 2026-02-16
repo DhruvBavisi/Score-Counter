@@ -44,6 +44,16 @@ export function Numpad({
   calcPoints,
   type
 }: NumpadProps) {
+  const [mode, setMode] = useState<'standard' | 'badam'>(matchName === 'Badam Satti' ? 'badam' : 'standard');
+
+  useEffect(() => {
+    if (matchName === 'Badam Satti') {
+      setMode('badam');
+    } else {
+      setMode('standard');
+    }
+  }, [matchName]);
+
   const handleButton = (btn: string) => {
     if (btn === 'C') {
       onChange('');
@@ -88,6 +98,13 @@ export function Numpad({
   const quickPoints = [
     [1, 5, 10],
     [-1, -5, -10]
+  ];
+
+  const badamCards = [
+    { label: '1', value: 1 }, { label: '2', value: 2 }, { label: '3', value: 3 }, { label: '4', value: 4 },
+    { label: '5', value: 5 }, { label: '6', value: 6 }, { label: '7', value: 7 }, { label: '8', value: 8 },
+    { label: '9', value: 9 }, { label: '10', value: 10 }, { label: '11', value: 11 }, { label: '12', value: 12 },
+    { label: '13', value: 13 }
   ];
 
   let startX: number | null = null;
@@ -172,7 +189,7 @@ export function Numpad({
         ) : (
           <>
         {/* Quick Points */}
-        {gameType !== 'judgement' && type !== 'customPoint' && (
+        {gameType !== 'judgement' && type !== 'customPoint' && matchName !== 'Badam Satti' && (
           <div className="space-y-2 mb-4">
             {quickPoints.map((row, i) => (
               <div key={i} className="grid grid-cols-3 gap-2 sm:gap-3">
@@ -195,7 +212,28 @@ export function Numpad({
           </div>
         )}
 
+        {/* Mode Toggle */}
+        {matchName === 'Badam Satti' && (
+          <div className="flex justify-center mb-4">
+            <div className="bg-secondary p-1 rounded-xl flex gap-1">
+              <button
+                onClick={() => setMode('badam')}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${mode === 'badam' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                Badam
+              </button>
+              <button
+                onClick={() => setMode('standard')}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${mode === 'standard' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                123
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Numpad Grid */}
+        {mode === 'standard' ? (
           <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3 sm:mb-4">
             {standardButtons.flat().map((btn) => (
               <button
@@ -209,6 +247,20 @@ export function Numpad({
               </button>
             ))}
           </div>
+        ) : (
+          <div className="grid grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4">
+            {badamCards.map((card) => (
+              <button
+                key={card.label}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleQuickPoint(card.value)}
+                className={`numpad-btn h-12 sm:h-14 md:h-16 text-lg sm:text-xl font-semibold bg-secondary/50 hover:bg-secondary text-foreground ${card.value === 13 ? 'col-span-4' : ''}`}
+              >
+                {card.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Bottom Row */}
         <div className="grid grid-cols-2 gap-2 sm:gap-3">

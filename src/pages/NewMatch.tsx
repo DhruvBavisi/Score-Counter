@@ -52,6 +52,7 @@ export default function NewMatch() {
   const location = useLocation();
   const { players: allPlayers, addPlayer, addGame } = useGame();
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const rafRef = useRef<number | null>(null);
   const lastRowRef = useRef<HTMLTableRowElement | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showGroups, setShowGroups] = useState(false);
@@ -72,7 +73,7 @@ export default function NewMatch() {
   const [showNewGameDialog, setShowNewGameDialog] = useState(false);
 
   // Setup state
-  const [winnerRule, setWinnerRule] = useState<'highest' | 'lowest'>('highest');
+  const [winnerRule, setWinnerRule] = useState<'highest' | 'lowest'>('lowest');
   const [numRounds, setNumRounds] = useState(5);
   const [selectedPlayers, setSelectedPlayers] = useState<Player[]>([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -233,19 +234,24 @@ export default function NewMatch() {
       e.preventDefault();
       
       const newY = e.clientY;
-      const diff = newY - draggingState.startY;
-      const slots = Math.round(diff / draggingState.itemHeight);
-      const currentIndex = tempSelected.indexOf(draggingState.id);
-      const targetIndex = Math.max(0, Math.min(tempSelected.length - 1, draggingState.startIndex + slots));
-      
-      if (targetIndex !== currentIndex) {
-        const newTemp = [...tempSelected];
-        const [removed] = newTemp.splice(currentIndex, 1);
-        newTemp.splice(targetIndex, 0, removed);
-        setTempSelected(newTemp);
-      }
-      
-      setDraggingState(prev => prev ? ({ ...prev, currentY: newY }) : null);
+
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
+      rafRef.current = requestAnimationFrame(() => {
+        const diff = newY - draggingState.startY;
+        const slots = Math.round(diff / draggingState.itemHeight);
+        const currentIndex = tempSelected.indexOf(draggingState.id);
+        const targetIndex = Math.max(0, Math.min(tempSelected.length - 1, draggingState.startIndex + slots));
+        
+        if (targetIndex !== currentIndex) {
+          const newTemp = [...tempSelected];
+          const [removed] = newTemp.splice(currentIndex, 1);
+          newTemp.splice(targetIndex, 0, removed);
+          setTempSelected(newTemp);
+        }
+        
+        setDraggingState(prev => prev ? ({ ...prev, currentY: newY }) : null);
+      });
     };
 
     const handlePointerUp = (e: React.PointerEvent) => {
@@ -829,66 +835,13 @@ export default function NewMatch() {
       `button[data-row="${row}"][data-col="${col}"][data-type="${type}"]`
     ) as HTMLButtonElement | null;
 
-    if (!container) return;
+    if (!container || !cell) return;
 
-    if (forceScrollRight) {
-      container.scrollTo({
-        left: container.scrollWidth,
-        behavior: 'smooth'
-      });
-      return;
-    }
-
-    if (!cell) return;
-
-    const containerRect = container.getBoundingClientRect();
-    const cellRect = cell.getBoundingClientRect();
-
-    const stickyColumnWidth = 64;
-    const stickyTotalWidth = gameType === 'judgement' ? 80 : 0;
-    const padding = 16;
-
-    // Horizontal scroll - align to show full cell at the end
-    if (cellRect.right > containerRect.right - stickyTotalWidth - padding) {
-      // Scroll so cell's right edge aligns with visible area's right edge (minus total column and padding)
-      const targetScrollLeft = container.scrollLeft + (cellRect.right - (containerRect.right - stickyTotalWidth - padding));
-      container.scrollTo({
-        left: targetScrollLeft,
-        behavior: 'smooth'
-      });
-    } else if (cellRect.left < containerRect.left + stickyColumnWidth + padding) {
-      // Scroll so cell's left edge is visible
-      const targetScrollLeft = container.scrollLeft - (containerRect.left + stickyColumnWidth + padding - cellRect.left);
-      container.scrollTo({
-        left: targetScrollLeft,
-        behavior: 'smooth'
-      });
-    }
-
-    // Vertical scroll with smooth behavior
-    const panel = document.getElementById('numpad-panel');
-    const panelHeight = panel ? panel.offsetHeight : 350;
-    
-    const viewportHeight = window.visualViewport?.height || window.innerHeight;
-    const viewportOffsetTop = window.visualViewport?.offsetTop || 0;
-    
-    const safeBottom = viewportHeight + viewportOffsetTop - panelHeight - 40;
-    const stickyHeaderHeight = 40;
-
-    if (cellRect.bottom > safeBottom) {
-       const diff = cellRect.bottom - safeBottom;
-       container.scrollTo({
-         top: container.scrollTop + diff,
-         behavior: 'smooth'
-       });
-    } 
-    else if (cellRect.top < containerRect.top + stickyHeaderHeight) {
-       const diff = (containerRect.top + stickyHeaderHeight) - cellRect.top;
-       container.scrollTo({
-         top: container.scrollTop - diff,
-         behavior: 'smooth'
-       });
-    }
+    cell.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+      inline: 'center'
+    });
   };
 
   // Auto-scroll when cell is selected (and Numpad appears)
@@ -897,7 +850,7 @@ export default function NewMatch() {
       // Small delay to allow Numpad to mount/render
       const timer = setTimeout(() => {
         scrollActiveCellIntoView(currentCell.row, currentCell.col, currentCell.type);
-      }, 150);
+      }, 50);
       return () => clearTimeout(timer);
     }
   }, [currentCell]);
@@ -931,7 +884,7 @@ export default function NewMatch() {
         if (next >= 0) {
           setCurrentCell({ row, col: next, type });
           setNumpadValue(type === 'prediction' ? predictions[row][next]?.toString() || '' : '');
-          scrollActiveCellIntoView(row, next, type);
+          // scrollActiveCellIntoView handled by useEffect
         }
       } else if (dir === 'right') {
         let next = col + 1;
@@ -939,7 +892,7 @@ export default function NewMatch() {
         if (next <= maxCol) {
           setCurrentCell({ row, col: next, type });
           setNumpadValue(type === 'prediction' ? predictions[row][next]?.toString() || '' : '');
-          scrollActiveCellIntoView(row, next, type);
+          // scrollActiveCellIntoView handled by useEffect
         }
       }
       return;
@@ -957,7 +910,7 @@ export default function NewMatch() {
       if (next >= 0) {
         setCurrentCell({ row, col: next, type: 'score' });
         setNumpadValue(scores[row][next].toString());
-        scrollActiveCellIntoView(row, next, 'score');
+        // scrollActiveCellIntoView handled by useEffect
       }
     } else if (dir === 'right') {
       let next = col + 1;
@@ -965,7 +918,7 @@ export default function NewMatch() {
       if (next <= maxCol) {
         setCurrentCell({ row, col: next, type: 'score' });
         setNumpadValue(scores[row][next].toString());
-        scrollActiveCellIntoView(row, next, 'score');
+        // scrollActiveCellIntoView handled by useEffect
       }
     }
   };
@@ -1008,7 +961,7 @@ export default function NewMatch() {
           if (!inactivePlayers.includes(selectedPlayers[nextCol].id)) {
             setCurrentCell({ row, col: nextCol, type: "prediction" });
             setNumpadValue(predictions[row]?.[nextCol]?.toString() || "");
-            scrollActiveCellIntoView(row, nextCol, "prediction");
+            // scrollActiveCellIntoView handled by useEffect
             return;
           }
         }
@@ -1019,7 +972,7 @@ export default function NewMatch() {
               (predictions[row]?.[nextCol] === null || predictions[row]?.[nextCol] === undefined)) {
             setCurrentCell({ row, col: nextCol, type: "prediction" });
             setNumpadValue("");
-            scrollActiveCellIntoView(row, nextCol, "prediction");
+            // scrollActiveCellIntoView handled by useEffect
             return;
           }
         }
@@ -1047,22 +1000,22 @@ export default function NewMatch() {
       const id = selectedPlayers[idx]?.id;
       return id ? !inactivePlayers.includes(id) : false;
     };
-    for (let c = col + 1; c < numPlayers; c++) {
-      if (isActive(c)) {
-        setCurrentCell({ row, col: c, type: "score" });
-        setNumpadValue(newScores[row][c].toString());
-        scrollActiveCellIntoView(row, c, "score");
-        return;
-      }
-    }
-    for (let r = row + 1; r < newScores.length; r++) {
-      for (let c = 0; c < numPlayers; c++) {
-        if (isActive(c)) {
-          setCurrentCell({ row: r, col: c, type: "score" });
-          setNumpadValue(newScores[r][c].toString());
-          scrollActiveCellIntoView(r, c, "score");
+
+    let nextRow = row;
+    let nextCol = col + 1;
+    
+    while (nextRow < newScores.length) {
+      if (nextCol < numPlayers) {
+        if (isActive(nextCol)) {
+          setCurrentCell({ row: nextRow, col: nextCol, type: "score" });
+          setNumpadValue(newScores[nextRow][nextCol].toString());
+          // scrollActiveCellIntoView handled by useEffect
           return;
         }
+        nextCol++;
+      } else {
+        nextRow++;
+        nextCol = 0;
       }
     }
     setCurrentCell(null);
@@ -1507,6 +1460,7 @@ export default function NewMatch() {
             onClose={() => setCurrentCell(null)}
             type={currentCell.type}
             gameType={gameType}
+            matchName={matchName}
           />
         )}
       </div>
@@ -1998,9 +1952,11 @@ export default function NewMatch() {
                     {total}
                   </td>
                 ))}
-                <td className="p-2 text-center sticky right-0 z-50 bg-background shadow-lg border-l-2 border-border font-bold text-foreground">
-                  {totals.reduce((a, b) => a + b, 0)}
-                </td>
+                {gameType === 'judgement' && (
+                  <td className="p-2 text-center sticky right-0 z-50 bg-background shadow-lg border-l-2 border-border font-bold text-foreground">
+                    {totals.reduce((a, b) => a + b, 0)}
+                  </td>
+                )}
               </tr>
             </tfoot>
           </table>
