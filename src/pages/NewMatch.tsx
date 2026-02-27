@@ -129,6 +129,7 @@ export default function NewMatch() {
         const pred = currentPredictions[r]?.[c];
         const result = currentResults[r]?.[c];
 
+        // Only recalculate if prediction exists and result is marked
         if (pred !== null && pred !== undefined && result !== null && result !== undefined) {
           const pts = calcPoints(pred, result, scoringSystem, penaltyMode, customPoints);
           roundScores.push(pts);
@@ -148,11 +149,14 @@ export default function NewMatch() {
     const shouldPreventSwipe = (gameStarted && !gameFinished) || (!gameStarted && isEditing);
     if (!shouldPreventSwipe) return;
 
+    // CSS prevention
     document.documentElement.style.overscrollBehavior = 'none';
 
+    // Touch event fallback for older browsers
     let startX = 0;
     const handleTouchStart = (e: TouchEvent) => { startX = e.touches[0].clientX; };
     const handleTouchMove = (e: TouchEvent) => {
+      // If swipe starts from the left edge (first 50px)
       if (startX < 50 && e.touches[0].clientX - startX > 10) {
         e.preventDefault();
       }
@@ -199,59 +203,12 @@ export default function NewMatch() {
       }, 300);
     };
 
-    // ── Auto-scroll refs ──────────────────────────────────────────────────────
-    /** The scrollable div inside the Sheet */
+    // Ref for the scrollable list container inside the Sheet
     const listScrollRef = useRef<HTMLDivElement | null>(null);
-    /** rAF handle for the auto-scroll loop */
+    // Ref for the auto-scroll animation frame
     const autoScrollRafRef = useRef<number | null>(null);
-    /** Live pointer Y, updated on every pointermove so the rAF loop can read it */
+    // Ref to track current pointer Y for auto-scroll loop
     const pointerYRef = useRef<number>(0);
-
-    /** Starts (or keeps running) the auto-scroll rAF loop */
-    const startAutoScroll = () => {
-      // Don't start a second loop if one is already running
-      if (autoScrollRafRef.current !== null) return;
-
-      const EDGE_ZONE = 80;  // px from container edge that activates scrolling
-      const MAX_SPEED = 16;  // max px scrolled per frame
-
-      const loop = () => {
-        const container = listScrollRef.current;
-        if (!container) return;
-
-        const { top, bottom } = container.getBoundingClientRect();
-        const py = pointerYRef.current;
-
-        let speed = 0;
-        if (py < top + EDGE_ZONE) {
-          // Pointer near top → scroll up (negative)
-          speed = -MAX_SPEED * Math.max(0, 1 - (py - top) / EDGE_ZONE);
-        } else if (py > bottom - EDGE_ZONE) {
-          // Pointer near bottom → scroll down (positive)
-          speed = MAX_SPEED * Math.max(0, 1 - (bottom - py) / EDGE_ZONE);
-        }
-
-        if (speed !== 0) {
-          container.scrollTop += speed;
-        }
-
-        autoScrollRafRef.current = requestAnimationFrame(loop);
-      };
-
-      autoScrollRafRef.current = requestAnimationFrame(loop);
-    };
-
-    /** Cancels the auto-scroll rAF loop */
-    const stopAutoScroll = () => {
-      if (autoScrollRafRef.current !== null) {
-        cancelAnimationFrame(autoScrollRafRef.current);
-        autoScrollRafRef.current = null;
-      }
-    };
-
-    // Clean up on unmount
-    useEffect(() => () => stopAutoScroll(), []);
-    // ─────────────────────────────────────────────────────────────────────────
 
     // Pointer-based Drag State for Real-time Reordering
     const [draggingState, setDraggingState] = useState<{
@@ -261,6 +218,50 @@ export default function NewMatch() {
       currentY: number;
       itemHeight: number;
     } | null>(null);
+
+    // Stop auto-scroll loop
+    const stopAutoScroll = () => {
+      if (autoScrollRafRef.current !== null) {
+        cancelAnimationFrame(autoScrollRafRef.current);
+        autoScrollRafRef.current = null;
+      }
+    };
+
+    // Start auto-scroll loop — runs until stopped
+    const startAutoScroll = (direction: 'up' | 'down') => {
+      stopAutoScroll();
+
+      const scroll = () => {
+        const container = listScrollRef.current;
+        if (!container) return;
+
+        const rect = container.getBoundingClientRect();
+        const pointerY = pointerYRef.current;
+        const SCROLL_ZONE = 80;   // px from edge to trigger scroll
+        const MAX_SPEED = 18;     // max px per frame
+
+        let speed = 0;
+        if (direction === 'up') {
+          const distFromTop = pointerY - rect.top;
+          if (distFromTop < SCROLL_ZONE) {
+            speed = -Math.round(MAX_SPEED * (1 - distFromTop / SCROLL_ZONE));
+          }
+        } else {
+          const distFromBottom = rect.bottom - pointerY;
+          if (distFromBottom < SCROLL_ZONE) {
+            speed = Math.round(MAX_SPEED * (1 - distFromBottom / SCROLL_ZONE));
+          }
+        }
+
+        if (speed !== 0) {
+          container.scrollTop += speed;
+        }
+
+        autoScrollRafRef.current = requestAnimationFrame(scroll);
+      };
+
+      autoScrollRafRef.current = requestAnimationFrame(scroll);
+    };
 
     const handlePointerDown = (e: React.PointerEvent, id: string, index: number) => {
       const handle = (e.target as HTMLElement).closest('.drag-handle');
@@ -279,8 +280,6 @@ export default function NewMatch() {
         currentY: e.clientY,
         itemHeight: rect.height + 8
       });
-
-      startAutoScroll();
     };
 
     const handlePointerMove = (e: React.PointerEvent) => {
@@ -288,8 +287,22 @@ export default function NewMatch() {
       e.preventDefault();
 
       const newY = e.clientY;
-      // Always update the ref so the rAF loop sees the latest position
       pointerYRef.current = newY;
+
+      // Trigger auto-scroll if near container edges
+      const container = listScrollRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const SCROLL_ZONE = 80;
+
+        if (newY - rect.top < SCROLL_ZONE) {
+          startAutoScroll('up');
+        } else if (rect.bottom - newY < SCROLL_ZONE) {
+          startAutoScroll('down');
+        } else {
+          stopAutoScroll();
+        }
+      }
 
       const diff = newY - draggingState.startY;
       const slots = Math.round(diff / draggingState.itemHeight);
@@ -297,10 +310,12 @@ export default function NewMatch() {
       const targetIndex = Math.max(0, Math.min(tempSelected.length - 1, draggingState.startIndex + slots));
 
       if (targetIndex !== currentIndex) {
-        const newTemp = [...tempSelected];
-        const [removed] = newTemp.splice(currentIndex, 1);
-        newTemp.splice(targetIndex, 0, removed);
-        setTempSelected(newTemp);
+        setTempSelected(prev => {
+          const newTemp = [...prev];
+          const [removed] = newTemp.splice(currentIndex, 1);
+          newTemp.splice(targetIndex, 0, removed);
+          return newTemp;
+        });
       }
 
       setDraggingState(prev => prev ? ({ ...prev, currentY: newY }) : null);
@@ -311,12 +326,18 @@ export default function NewMatch() {
       setDraggingState(null);
     };
 
+    // Clean up auto-scroll if component unmounts mid-drag
+    useEffect(() => {
+      return () => stopAutoScroll();
+    }, []);
+
     const getDragOffset = (id: string) => {
       if (!draggingState || draggingState.id !== id) return 0;
       const currentIndex = tempSelected.indexOf(id);
       const indexDiff = currentIndex - draggingState.startIndex;
       const rawOffset = (draggingState.currentY - draggingState.startY) - (indexDiff * draggingState.itemHeight);
 
+      // Clamp so the card can't float above position 0 or below the last position
       const minOffset = -currentIndex * draggingState.itemHeight;
       const maxOffset = (tempSelected.length - 1 - currentIndex) * draggingState.itemHeight;
       return Math.max(minOffset, Math.min(maxOffset, rawOffset));
@@ -337,6 +358,7 @@ export default function NewMatch() {
         } as React.CSSProperties;
       }
 
+      // Non-dragged items — framer-motion layout handles the animation
       return {
         touchAction: 'pan-y'
       } as React.CSSProperties;
@@ -350,6 +372,7 @@ export default function NewMatch() {
               key={groupName}
               onClick={() => {
                 setOpenGroup({ name: groupName, players: groupPlayers });
+                // Initialize tempSelected with current global order for this group's players
                 const selectedOrder = selectedPlayers
                   .filter((p) => groupPlayers.some((gp) => gp.id === p.id))
                   .map((p) => p.id);
@@ -362,11 +385,14 @@ export default function NewMatch() {
                 <span className="text-xs text-muted-foreground">{groupPlayers.length}</span>
                 {selectedPlayers.some((p) => groupPlayers.some((gp) => gp.id === p.id)) && (
                   <span className="text-xs px-2 py-0.5 rounded-md bg-primary/15 text-primary font-semibold">
-                    {selectedPlayers.filter((p) => groupPlayers.some((gp) => gp.id === p.id)).length}
+                    {
+                      selectedPlayers.filter((p) => groupPlayers.some((gp) => gp.id === p.id)).length
+                    }
                   </span>
                 )}
               </div>
             </button>
+
           ))}
         </div>
 
@@ -401,10 +427,10 @@ export default function NewMatch() {
                   </button>
                 </header>
 
-                {/* ↓ Scrollable container — ref attached here for auto-scroll */}
+                {/* ↓ This div is now the scrollable container we track */}
                 <div
-                  ref={listScrollRef}
                   className="flex-1 overflow-y-auto p-4 space-y-6"
+                  ref={listScrollRef}
                 >
                   {/* Selected Players (Draggable) */}
                   <div className="space-y-2 relative">
@@ -440,7 +466,7 @@ export default function NewMatch() {
                               onPointerCancel={handlePointerUp}
                               className="flex-1 p-3 rounded-xl border-2 flex items-center gap-3 border-primary bg-primary/10 select-none"
                             >
-                              {/* Drag handle */}
+                              {/* Drag handle - leftmost */}
                               <div
                                 className="drag-handle cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-primary p-1 shrink-0 flex items-center justify-center transition-colors duration-200"
                                 style={{ touchAction: 'none' }}
@@ -454,6 +480,7 @@ export default function NewMatch() {
                               <span className="px-2 py-1 rounded-md bg-primary/15 text-primary font-bold text-sm min-w-[2rem] text-center select-none shrink-0">
                                 {index + 1}
                               </span>
+                              {/* Close button - rightmost */}
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -493,7 +520,7 @@ export default function NewMatch() {
                             style={{ touchAction: 'pan-y' }}
                             className="w-full p-3 rounded-xl border-2 border-border hover:border-primary/50 transition-all flex items-center gap-3 bg-card cursor-pointer"
                           >
-                            <div className="w-[36px] shrink-0" />
+                            <div className="w-[36px] shrink-0" /> {/* Spacer for alignment with drag handle */}
                             <PlayerAvatar name={player.name} size="sm" />
                             <span className="font-medium text-foreground">{player.name}</span>
                           </motion.div>
@@ -501,18 +528,20 @@ export default function NewMatch() {
                     </AnimatePresence>
                   </div>
                 </div>
-
                 <div className="p-6 pb-4 bg-gradient-to-t from-background to-transparent">
                   <button
                     onClick={() => {
                       handleCloseGroup(() => {
+                        // Remove players of this group from global selection
                         const groupIds = new Set(openGroup.players.map((p) => p.id));
                         const otherSelected = selectedPlayers.filter(p => !groupIds.has(p.id));
 
+                        // Get new selected players in order
                         const newGroupSelected = tempSelected
                           .map(id => openGroup.players.find(p => p.id === id))
                           .filter((p): p is Player => !!p);
 
+                        // Combine: Others + New (Sorted)
                         onUpdateSelected([...otherSelected, ...newGroupSelected]);
                       });
                     }}
@@ -597,6 +626,7 @@ export default function NewMatch() {
   const toTitleCase = (s: string) =>
     s.replace(/\b\w+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 
+  // Generate unique groups from all players
   const uniqueGroups = useMemo(() => {
     const groups = new Set<string>();
     allPlayers.forEach(player => {
@@ -606,18 +636,18 @@ export default function NewMatch() {
     });
     return Array.from(groups).sort();
   }, [allPlayers]);
-
   const toggleInactive = (id: string) =>
     setInactivePlayers((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-
   const prevRoundsCount = useRef(0);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
 
+    // Only scroll to bottom if rounds were actually added (not initial start)
     if (scores.length > prevRoundsCount.current && prevRoundsCount.current > 0) {
       el.scrollTop = el.scrollHeight;
     } else if (scores.length > 0 && prevRoundsCount.current === 0) {
+      // On initial start, ensure we are at the top
       el.scrollTop = 0;
     }
     prevRoundsCount.current = scores.length;
@@ -627,8 +657,14 @@ export default function NewMatch() {
     const handleClickOutside = (e: MouseEvent | TouchEvent) => {
       if (!currentCell) return;
       const target = e.target as HTMLElement;
+      // Check if click is inside numpad
       if (target.closest('#numpad-panel')) return;
+
+      // Check if click is on a cell button (or its children)
+      // We check for the data-row attribute which our cell buttons have
       if (target.closest('button[data-row]')) return;
+
+      // If neither, close numpad
       setCurrentCell(null);
     };
 
@@ -646,6 +682,7 @@ export default function NewMatch() {
   useEffect(() => {
     const gameData = (location.state as any)?.gameData;
     if (gameData) {
+      // Map names back to players or create temp players
       const resumedPlayers = gameData.players.map((name: string) => {
         const existing = allPlayers.find(p => p.name === name);
         if (existing) return existing;
@@ -663,6 +700,7 @@ export default function NewMatch() {
       setGameStarted(true);
       setGameFinished(false);
 
+      // Clear location state to avoid re-initializing on refresh
       window.history.replaceState({}, document.title);
       toast.success('Resumed game from history');
     }
@@ -708,6 +746,7 @@ export default function NewMatch() {
     }
 
     if (isEditing && savedScores.length > 0) {
+      // Map previous data to players by ID
       const playerScoresMap = new Map<string, number[]>();
       const playerPredictionsMap = new Map<string, (number | null)[]>();
       const playerResultsMap = new Map<string, (boolean | null)[]>();
@@ -743,6 +782,7 @@ export default function NewMatch() {
 
       let finalScores = newScores;
 
+      // Detect settings changes for Judgement game
       if (gameType === 'judgement') {
         const customChanged = JSON.stringify(savedCustomPoints) !== JSON.stringify(customPoints);
         const settingsChanged =
@@ -756,6 +796,7 @@ export default function NewMatch() {
         }
       }
 
+      // If rounds increased/decreased
       if (numRounds > finalScores.length) {
         const extraRounds = numRounds - finalScores.length;
         const extraScores = Array(extraRounds).fill(null).map(() => Array(selectedPlayers.length).fill(0));
@@ -774,12 +815,13 @@ export default function NewMatch() {
       setIsEditing(false);
       clearDraft();
     } else {
+      // New game
       setScores(Array(numRounds).fill(null).map(() => Array(selectedPlayers.length).fill(0)));
       if (gameType === 'judgement') {
         setPredictions(Array(numRounds).fill(null).map(() => Array(selectedPlayers.length).fill(null)));
         setResults(Array(numRounds).fill(null).map(() => Array(selectedPlayers.length).fill(null)));
       }
-      clearDraft();
+      clearDraft(); // Clear any previous draft when starting a fresh game
     }
     setGameStarted(true);
   };
@@ -791,6 +833,7 @@ export default function NewMatch() {
     }
 
     if (results[r]?.[c] !== undefined && results[r]?.[c] !== null) {
+      // If result already marked, clicking prediction cell does nothing
       return;
     }
 
@@ -802,7 +845,7 @@ export default function NewMatch() {
   const openResultMarking = (r: number, c: number) => {
     if (predictions[r]?.[c] === undefined || predictions[r]?.[c] === null) return;
     setCurrentCell({ row: r, col: c, type: 'points' });
-    setNumpadValue('');
+    setNumpadValue(''); // Clear numpad value so it shows result marking buttons
     scrollActiveCellIntoView(r, c, 'points');
   };
 
@@ -828,6 +871,7 @@ export default function NewMatch() {
       return n;
     });
 
+    // Move to next points cell in same round
     for (let nextCol = col + 1; nextCol < selectedPlayers.length; nextCol++) {
       if (!inactivePlayers.includes(selectedPlayers[nextCol].id)) {
         setCurrentCell({ row, col: nextCol, type: "points" });
@@ -837,6 +881,7 @@ export default function NewMatch() {
       }
     }
 
+    // Wrap around to check for missed cells
     for (let nextCol = 0; nextCol < col; nextCol++) {
       if (!inactivePlayers.includes(selectedPlayers[nextCol].id) &&
         (results[row]?.[nextCol] === null || results[row]?.[nextCol] === undefined)) {
@@ -849,6 +894,7 @@ export default function NewMatch() {
 
     setCurrentCell(null);
 
+    // All results marked for this round - smooth scroll to start of points row
     setTimeout(() => {
       const firstCell = document.querySelector(
         `button[data-row="${row}"][data-col="0"][data-type="points"]`
@@ -919,8 +965,10 @@ export default function NewMatch() {
     });
   };
 
+  // Auto-scroll when cell is selected (and Numpad appears)
   useEffect(() => {
     if (currentCell) {
+      // Small delay to allow Numpad to mount/render
       const timer = setTimeout(() => {
         scrollActiveCellIntoView(currentCell.row, currentCell.col, currentCell.type);
       }, 50);
@@ -957,6 +1005,7 @@ export default function NewMatch() {
         if (next >= 0) {
           setCurrentCell({ row, col: next, type });
           setNumpadValue(type === 'prediction' ? predictions[row][next]?.toString() || '' : '');
+          // scrollActiveCellIntoView handled by useEffect
         }
       } else if (dir === 'right') {
         let next = col + 1;
@@ -964,6 +1013,7 @@ export default function NewMatch() {
         if (next <= maxCol) {
           setCurrentCell({ row, col: next, type });
           setNumpadValue(type === 'prediction' ? predictions[row][next]?.toString() || '' : '');
+          // scrollActiveCellIntoView handled by useEffect
         }
       }
       return;
@@ -981,6 +1031,7 @@ export default function NewMatch() {
       if (next >= 0) {
         setCurrentCell({ row, col: next, type: 'score' });
         setNumpadValue(scores[row][next].toString());
+        // scrollActiveCellIntoView handled by useEffect
       }
     } else if (dir === 'right') {
       let next = col + 1;
@@ -988,6 +1039,7 @@ export default function NewMatch() {
       if (next <= maxCol) {
         setCurrentCell({ row, col: next, type: 'score' });
         setNumpadValue(scores[row][next].toString());
+        // scrollActiveCellIntoView handled by useEffect
       }
     }
   };
@@ -1025,24 +1077,29 @@ export default function NewMatch() {
           return n;
         });
 
+        // Move to next prediction cell in same round
         for (let nextCol = col + 1; nextCol < selectedPlayers.length; nextCol++) {
           if (!inactivePlayers.includes(selectedPlayers[nextCol].id)) {
             setCurrentCell({ row, col: nextCol, type: "prediction" });
             setNumpadValue(predictions[row]?.[nextCol]?.toString() || "");
+            // scrollActiveCellIntoView handled by useEffect
             return;
           }
         }
 
+        // If we reached the end but some cells are still empty, wrap around to the first empty cell
         for (let nextCol = 0; nextCol < col; nextCol++) {
           if (!inactivePlayers.includes(selectedPlayers[nextCol].id) &&
             (predictions[row]?.[nextCol] === null || predictions[row]?.[nextCol] === undefined)) {
             setCurrentCell({ row, col: nextCol, type: "prediction" });
             setNumpadValue("");
+            // scrollActiveCellIntoView handled by useEffect
             return;
           }
         }
 
         setCurrentCell(null);
+        // All predictions filled for this round - smooth scroll to start
         setTimeout(() => {
           const firstCell = document.querySelector(
             `button[data-row="${row}"][data-col="0"][data-type="prediction"]`
@@ -1069,6 +1126,7 @@ export default function NewMatch() {
     newScores[currentCell.row][currentCell.col] = value;
     setScores(newScores);
 
+    // Move to next cell
     const { row, col } = currentCell;
     const numPlayers = selectedPlayers.length;
     const isActive = (idx: number) => {
@@ -1084,6 +1142,7 @@ export default function NewMatch() {
         if (isActive(nextCol)) {
           setCurrentCell({ row: nextRow, col: nextCol, type: "score" });
           setNumpadValue(newScores[nextRow][nextCol].toString());
+          // scrollActiveCellIntoView handled by useEffect
           return;
         }
         nextCol++;
@@ -1142,10 +1201,12 @@ export default function NewMatch() {
       rank: 0
     }));
 
+    // Sort by total (descending for highest wins, ascending for lowest wins)
     playersWithTotals.sort((a, b) =>
       winnerRule === 'highest' ? b.total - a.total : a.total - b.total
     );
 
+    // Dense ranking: ties share rank, next distinct value increments by 1
     let rank = 0;
     let prevTotal: number | null = null;
     for (let i = 0; i < playersWithTotals.length; i++) {
@@ -1173,6 +1234,7 @@ export default function NewMatch() {
         className="min-h-screen bg-background safe-top safe-bottom"
         style={isEditing ? { overscrollBehavior: 'none', overscrollBehaviorX: 'none' } : {}}
       >
+        {/* Header */}
         <header className="px-8 py-5 flex items-center gap-4 border-b border-border">
           {!isEditing && (
             <button
@@ -1303,7 +1365,6 @@ export default function NewMatch() {
               )}
             </AnimatePresence>
           </section>
-
           {/* Match Name */}
           <section>
             <h2 className="text-sm font-semibold text-muted-foreground mb-3">Match Name</h2>
@@ -1315,7 +1376,6 @@ export default function NewMatch() {
               className="w-full px-4 py-3 rounded-xl bg-secondary text-foreground placeholder:text-muted-foreground border border-border focus:border-primary focus:outline-none transition-colors"
             />
           </section>
-
           {/* Winner Rule */}
           <section>
             <h2 className="text-sm font-semibold text-muted-foreground mb-3">Winner Rule</h2>
@@ -1371,8 +1431,12 @@ export default function NewMatch() {
               Select Players ({selectedPlayers.length} selected)
             </h2>
 
+            {/* Add New Player */}
             <div className="space-y-4 mb-4">
+
+              {/* Player Name + Add Button */}
               <div className="flex gap-3 items-end">
+
                 <div className="flex-1 relative group">
                   <input
                     type="text"
@@ -1382,22 +1446,40 @@ export default function NewMatch() {
                     onFocus={() => setIsNewPlayerNameFocused(true)}
                     onBlur={() => setIsNewPlayerNameFocused(false)}
                     placeholder="Enter player name"
-                    className="w-full px-5 py-3 rounded-2xl bg-secondary text-foreground placeholder:text-muted-foreground border border-border focus:border-primary focus:ring-2 focus:ring-primary/30 outline-none transition-all font-display text-base shadow-sm"
+                    className="
+          w-full px-5 py-3 rounded-2xl
+          bg-secondary text-foreground
+          placeholder:text-muted-foreground
+          border border-border
+          focus:border-primary focus:ring-2 focus:ring-primary/30
+          outline-none transition-all
+          font-display text-base shadow-sm
+        "
                   />
                 </div>
 
                 <button
                   onClick={handleAddNewPlayer}
-                  className="w-11 h-11 rounded-xl flex items-center justify-center bg-gradient-primary text-primary-foreground shadow-glow hover:scale-105 active:scale-95 transition-transform"
+                  className="
+      w-11 h-11 rounded-xl
+      flex items-center justify-center
+      bg-gradient-primary text-primary-foreground
+      shadow-glow
+      hover:scale-105 active:scale-95
+      transition-transform
+    "
                   title="Add Player"
                 >
                   <Plus className="w-5 h-5" />
                 </button>
+
               </div>
+
             </div>
 
             {/* Group Selector */}
             <div className="relative">
+
               <div className="relative group w-72">
                 <input
                   type="text"
@@ -1411,6 +1493,7 @@ export default function NewMatch() {
                     setIsNewPlayerGroupFocused(true);
                   }}
                   onBlur={() => {
+                    // Slight timeout to allow onMouseDown to fire on dropdown items
                     setTimeout(() => {
                       setShowGroups(false);
                       setIsNewPlayerGroupFocused(false);
@@ -1418,8 +1501,20 @@ export default function NewMatch() {
                   }}
                   onClick={() => setShowGroups(true)}
                   placeholder="Select or create a group"
-                  className="w-full px-5 py-3 pr-12 rounded-2xl mb-3 bg-secondary text-foreground placeholder:text-muted-foreground border border-border focus:border-primary focus:ring-2 focus:ring-primary/30 outline-none transition-all font-display text-base shadow-sm appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-list-button]:hidden"
+                  className="
+          w-full px-5 py-3 pr-12 rounded-2xl mb-3
+          bg-secondary text-foreground 
+          placeholder:text-muted-foreground 
+          border border-border 
+          focus:border-primary focus:ring-2 focus:ring-primary/30 
+          outline-none transition-all 
+          font-display text-base shadow-sm
+          appearance-none 
+          [&::-webkit-calendar-picker-indicator]:hidden
+          [&::-webkit-list-button]:hidden
+        "
                 />
+
                 <ChevronDown className={`absolute right-4 top-1/2 -translate-y-[70%] w-5 h-5 text-muted-foreground group-focus-within:text-primary transition-all duration-200 ${showGroups ? 'rotate-180' : ''}`} />
               </div>
 
@@ -1436,11 +1531,17 @@ export default function NewMatch() {
                             key={group}
                             type="button"
                             onMouseDown={(e) => {
-                              e.preventDefault();
+                              e.preventDefault(); // prevents input blur
                               setNewPlayerGroup(group);
                               setShowGroups(false);
                             }}
-                            className="w-full text-left px-4 py-3 font-display text-sm text-foreground hover:bg-primary/10 transition-colors"
+                            className="
+                    w-full text-left px-4 py-3
+                    font-display text-sm
+                    text-foreground
+                    hover:bg-primary/10
+                    transition-colors
+                  "
                           >
                             {group}
                           </button>
@@ -1456,6 +1557,8 @@ export default function NewMatch() {
                 </div>
               )}
             </div>
+
+
 
             {/* Player List */}
             <PlayerList
@@ -1977,6 +2080,7 @@ export default function NewMatch() {
               </tr>
             </tfoot>
           </table>
+          {/* Temporary Spacer for Numpad */}
           {currentCell && (
             <div className="w-full h-[50vh] transition-all duration-200" />
           )}
@@ -2012,6 +2116,7 @@ export default function NewMatch() {
             </div>
           </div>
         )}
+
       </main>
 
       <div className="p-6 pt-0 pb-4 bg-gradient-to-t from-background to-transparent">
