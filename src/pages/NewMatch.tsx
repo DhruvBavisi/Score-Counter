@@ -73,7 +73,7 @@ export default function NewMatch() {
   const [showNewGameDialog, setShowNewGameDialog] = useState(false);
 
   // Setup state
-  const [winnerRule, setWinnerRule] = useState<'highest' | 'lowest'>('lowest');
+  const [winnerRule, setWinnerRule] = useState<'highest' | 'lowest'>('highest');
   const [numRounds, setNumRounds] = useState(5);
   const [selectedPlayers, setSelectedPlayers] = useState<Player[]>([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -121,14 +121,14 @@ export default function NewMatch() {
     playersCount: number
   ) => {
     const newScores: number[][] = [];
-    
+
     for (let r = 0; r < currentScores.length; r++) {
       const roundScores: number[] = [];
-      
+
       for (let c = 0; c < playersCount; c++) {
         const pred = currentPredictions[r]?.[c];
         const result = currentResults[r]?.[c];
-        
+
         // Only recalculate if prediction exists and result is marked
         if (pred !== null && pred !== undefined && result !== null && result !== undefined) {
           const pts = calcPoints(pred, result, scoringSystem, penaltyMode, customPoints);
@@ -137,10 +137,10 @@ export default function NewMatch() {
           roundScores.push(currentScores[r]?.[c] || 0);
         }
       }
-      
+
       newScores.push(roundScores);
     }
-    
+
     return newScores;
   };
 
@@ -148,10 +148,10 @@ export default function NewMatch() {
   useEffect(() => {
     const shouldPreventSwipe = (gameStarted && !gameFinished) || (!gameStarted && isEditing);
     if (!shouldPreventSwipe) return;
-    
+
     // CSS prevention
     document.documentElement.style.overscrollBehavior = 'none';
-    
+
     // Touch event fallback for older browsers
     let startX = 0;
     const handleTouchStart = (e: TouchEvent) => { startX = e.touches[0].clientX; };
@@ -161,10 +161,10 @@ export default function NewMatch() {
         e.preventDefault();
       }
     };
-    
+
     document.addEventListener('touchstart', handleTouchStart, { passive: false });
     document.addEventListener('touchmove', handleTouchMove, { passive: false });
-    
+
     return () => {
       document.documentElement.style.overscrollBehavior = '';
       document.removeEventListener('touchstart', handleTouchStart);
@@ -189,7 +189,7 @@ export default function NewMatch() {
       }
       return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
     }, [sortedPlayers]);
-    
+
     const [openGroup, setOpenGroup] = useState<{ name: string; players: Player[] } | null>(null);
     const [tempSelected, setTempSelected] = useState<string[]>([]);
     const [isClosing, setIsClosing] = useState(false);
@@ -202,7 +202,7 @@ export default function NewMatch() {
         setIsClosing(false);
       }, 300);
     };
-    
+
     // Pointer-based Drag State for Real-time Reordering
     const [draggingState, setDraggingState] = useState<{
       id: string;
@@ -215,10 +215,10 @@ export default function NewMatch() {
     const handlePointerDown = (e: React.PointerEvent, id: string, index: number) => {
       const handle = (e.target as HTMLElement).closest('.drag-handle');
       if (!handle) return;
-      
+
       const el = e.currentTarget as HTMLElement;
       el.setPointerCapture(e.pointerId);
-      
+
       const rect = el.getBoundingClientRect();
       setDraggingState({
         id,
@@ -232,54 +232,57 @@ export default function NewMatch() {
     const handlePointerMove = (e: React.PointerEvent) => {
       if (!draggingState) return;
       e.preventDefault();
-      
+
       const newY = e.clientY;
 
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      // Direct update — no rAF batching — for instant cursor tracking
+      const diff = newY - draggingState.startY;
+      const slots = Math.round(diff / draggingState.itemHeight);
+      const currentIndex = tempSelected.indexOf(draggingState.id);
+      const targetIndex = Math.max(0, Math.min(tempSelected.length - 1, draggingState.startIndex + slots));
 
-      rafRef.current = requestAnimationFrame(() => {
-        const diff = newY - draggingState.startY;
-        const slots = Math.round(diff / draggingState.itemHeight);
-        const currentIndex = tempSelected.indexOf(draggingState.id);
-        const targetIndex = Math.max(0, Math.min(tempSelected.length - 1, draggingState.startIndex + slots));
-        
-        if (targetIndex !== currentIndex) {
-          const newTemp = [...tempSelected];
-          const [removed] = newTemp.splice(currentIndex, 1);
-          newTemp.splice(targetIndex, 0, removed);
-          setTempSelected(newTemp);
-        }
-        
-        setDraggingState(prev => prev ? ({ ...prev, currentY: newY }) : null);
-      });
+      if (targetIndex !== currentIndex) {
+        const newTemp = [...tempSelected];
+        const [removed] = newTemp.splice(currentIndex, 1);
+        newTemp.splice(targetIndex, 0, removed);
+        setTempSelected(newTemp);
+      }
+
+      setDraggingState(prev => prev ? ({ ...prev, currentY: newY }) : null);
     };
 
-    const handlePointerUp = (e: React.PointerEvent) => {
+    const handlePointerUp = () => {
       setDraggingState(null);
+    };
+
+    const getDragOffset = (id: string) => {
+      if (!draggingState || draggingState.id !== id) return 0;
+      const currentIndex = tempSelected.indexOf(id);
+      const indexDiff = currentIndex - draggingState.startIndex;
+      const rawOffset = (draggingState.currentY - draggingState.startY) - (indexDiff * draggingState.itemHeight);
+
+      // Clamp so the card can't float above position 0 or below the last position
+      const minOffset = -currentIndex * draggingState.itemHeight;
+      const maxOffset = (tempSelected.length - 1 - currentIndex) * draggingState.itemHeight;
+      return Math.max(minOffset, Math.min(maxOffset, rawOffset));
     };
 
     const getItemStyle = (index: number, id: string) => {
       if (!draggingState) return { touchAction: 'pan-y' } as React.CSSProperties;
 
       const isDragged = draggingState.id === id;
-      
-      if (isDragged) {
-        // The dragged item follows the cursor, but we need to account for its new index in the list
-        // to keep the visual offset relative to its STARTING position.
-        const currentIndex = tempSelected.indexOf(id);
-        const indexDiff = currentIndex - draggingState.startIndex;
-        const visualOffset = (draggingState.currentY - draggingState.startY) - (indexDiff * draggingState.itemHeight);
 
+      if (isDragged) {
         return {
-          transform: `translateY(${visualOffset}px)`,
           zIndex: 50,
-          opacity: 0.7,
           cursor: 'grabbing',
-          transition: 'none',
-          touchAction: 'none'
+          touchAction: 'none',
+          pointerEvents: 'auto' as const,
+          willChange: 'transform',
         } as React.CSSProperties;
       }
 
+      // Non-dragged items — framer-motion layout handles the animation
       return {
         touchAction: 'pan-y'
       } as React.CSSProperties;
@@ -313,7 +316,7 @@ export default function NewMatch() {
                 )}
               </div>
             </button>
-            
+
           ))}
         </div>
 
@@ -323,12 +326,12 @@ export default function NewMatch() {
               handleCloseGroup();
             }
           }}>
-            <SheetContent 
-              side="bottom" 
+            <SheetContent
+              side="bottom"
               className={cn(
                 "h-[85vh] p-0 rounded-t-3xl outline-none transition-transform duration-200 ease-in-out",
                 isClosing ? "translate-y-full" : "translate-y-0"
-              )} 
+              )}
               hideClose
             >
               <VisuallyHidden>
@@ -340,7 +343,7 @@ export default function NewMatch() {
                     <h3 className="font-display text-lg font-bold text-foreground">{openGroup.name}</h3>
                     <p className="text-sm text-muted-foreground">{openGroup.players.length} players</p>
                   </div>
-                  <button 
+                  <button
                     onClick={() => handleCloseGroup()}
                     className="p-2 -mr-2 text-muted-foreground hover:text-foreground transition-all active:translate-y-1"
                   >
@@ -355,15 +358,23 @@ export default function NewMatch() {
                       {tempSelected.map((id, index) => {
                         const player = openGroup.players.find(p => p.id === id);
                         if (!player) return null;
+                        const isBeingDragged = draggingState?.id === id;
+                        const dragOffset = getDragOffset(id);
                         return (
                           <motion.div
                             key={player.id}
                             layoutId={player.id}
-                            layout
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
+                            layout={!isBeingDragged}
+                            initial={{ opacity: 0, scale: 0.95, y: 0 }}
+                            animate={isBeingDragged
+                              ? { opacity: 0.85, scale: 1, y: dragOffset }
+                              : { opacity: 1, scale: 1, y: 0 }
+                            }
                             exit={{ opacity: 0, scale: 0.95 }}
-                            transition={{ duration: 0.2, ease: "easeInOut" }}
+                            transition={isBeingDragged
+                              ? { duration: 0 }
+                              : { duration: 0.2, ease: "easeInOut", layout: { type: "spring", stiffness: 500, damping: 35 } }
+                            }
                             style={getItemStyle(index, id)}
                             className="flex items-center gap-2 group"
                           >
@@ -374,29 +385,32 @@ export default function NewMatch() {
                               onPointerCancel={handlePointerUp}
                               className="flex-1 p-3 rounded-xl border-2 flex items-center gap-3 border-primary bg-primary/10 select-none"
                             >
-                              <PlayerAvatar name={player.name} size="sm" />
-                              <span className="font-medium text-foreground flex-1 text-left select-none">{player.name}</span>
-                              <div className="flex items-center gap-3">
-                                <span className="px-2 py-1 rounded-md bg-primary/15 text-primary font-bold text-sm min-w-[2rem] text-center select-none">
-                                  {index + 1}
-                                </span>
-                                <div 
-                                  className="drag-handle cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-primary p-3 -mr-2"
-                                  style={{ touchAction: 'none' }}
-                                >
-                                  {/* Thinner equals/hamburger symbol */}
-                                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M3 9h18M3 15h18" />
-                                  </svg>
-                                </div>
+                              {/* Drag handle - leftmost */}
+                              <div
+                                className="drag-handle cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-primary p-1 shrink-0 flex items-center justify-center transition-colors duration-200"
+                                style={{ touchAction: 'none' }}
+                              >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M3 9h18M3 15h18" />
+                                </svg>
                               </div>
+                              <PlayerAvatar name={player.name} size="sm" />
+                              <span className="font-medium text-foreground flex-1 text-left select-none truncate">{player.name}</span>
+                              <span className="px-2 py-1 rounded-md bg-primary/15 text-primary font-bold text-sm min-w-[2rem] text-center select-none shrink-0">
+                                {index + 1}
+                              </span>
+                              {/* Close button - rightmost */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTempSelected(prev => prev.filter(pid => pid !== id));
+                                }}
+                                className="p-1 rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-500/10 shrink-0 flex items-center justify-center"
+                                style={{ transition: 'color 250ms ease, background-color 250ms ease' }}
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
                             </div>
-                            <button
-                              onClick={() => setTempSelected(prev => prev.filter(pid => pid !== id))}
-                              className="p-2 rounded-full hover:bg-red-500/10 text-red-500 transition-colors shrink-0"
-                            >
-                              <X className="w-6 h-6" />
-                            </button>
                           </motion.div>
                         );
                       })}
@@ -413,23 +427,23 @@ export default function NewMatch() {
                       {openGroup.players
                         .filter(p => !tempSelected.includes(p.id))
                         .map((player) => (
-                        <motion.div
-                          key={player.id}
-                          layoutId={player.id}
-                          layout
-                          initial={{ opacity: 0, scale: 0.95 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          transition={{ duration: 0.2, ease: "easeInOut" }}
-                          onClick={() => setTempSelected(prev => [...prev, player.id])}
-                          style={{ touchAction: 'pan-y' }}
-                          className="w-full p-3 rounded-xl border-2 border-border hover:border-primary/50 transition-all flex items-center gap-3 bg-card cursor-pointer"
-                        >
-                          <div className="w-5" /> {/* Spacer for alignment with drag handle */}
-                          <PlayerAvatar name={player.name} size="sm" />
-                          <span className="font-medium text-foreground">{player.name}</span>
-                        </motion.div>
-                      ))}
+                          <motion.div
+                            key={player.id}
+                            layoutId={player.id}
+                            layout
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            transition={{ duration: 0.2, ease: "easeInOut" }}
+                            onClick={() => setTempSelected(prev => [...prev, player.id])}
+                            style={{ touchAction: 'pan-y' }}
+                            className="w-full p-3 rounded-xl border-2 border-border hover:border-primary/50 transition-all flex items-center gap-3 bg-card cursor-pointer"
+                          >
+                            <div className="w-[36px] shrink-0" /> {/* Spacer for alignment with drag handle */}
+                            <PlayerAvatar name={player.name} size="sm" />
+                            <span className="font-medium text-foreground">{player.name}</span>
+                          </motion.div>
+                        ))}
                     </AnimatePresence>
                   </div>
                 </div>
@@ -440,12 +454,12 @@ export default function NewMatch() {
                         // Remove players of this group from global selection
                         const groupIds = new Set(openGroup.players.map((p) => p.id));
                         const otherSelected = selectedPlayers.filter(p => !groupIds.has(p.id));
-                        
+
                         // Get new selected players in order
                         const newGroupSelected = tempSelected
                           .map(id => openGroup.players.find(p => p.id === id))
                           .filter((p): p is Player => !!p);
-                        
+
                         // Combine: Others + New (Sorted)
                         onUpdateSelected([...otherSelected, ...newGroupSelected]);
                       });
@@ -517,7 +531,7 @@ export default function NewMatch() {
           if (draft.results) setResults(draft.results);
           setGameStarted(true);
           setGameFinished(false);
-          
+
           window.history.replaceState({}, document.title);
           toast.success('Resumed draft successfully');
         } catch (e) {
@@ -547,7 +561,7 @@ export default function NewMatch() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    
+
     // Only scroll to bottom if rounds were actually added (not initial start)
     if (scores.length > prevRoundsCount.current && prevRoundsCount.current > 0) {
       el.scrollTop = el.scrollHeight;
@@ -564,7 +578,7 @@ export default function NewMatch() {
       const target = e.target as HTMLElement;
       // Check if click is inside numpad
       if (target.closest('#numpad-panel')) return;
-      
+
       // Check if click is on a cell button (or its children)
       // We check for the data-row attribute which our cell buttons have
       if (target.closest('button[data-row]')) return;
@@ -604,7 +618,7 @@ export default function NewMatch() {
       setMatchName(gameData.matchName || '');
       setGameStarted(true);
       setGameFinished(false);
-      
+
       // Clear location state to avoid re-initializing on refresh
       window.history.replaceState({}, document.title);
       toast.success('Resumed game from history');
@@ -655,9 +669,9 @@ export default function NewMatch() {
       const playerScoresMap = new Map<string, number[]>();
       const playerPredictionsMap = new Map<string, (number | null)[]>();
       const playerResultsMap = new Map<string, (boolean | null)[]>();
-      
-      const sourcePlayers = savedPlayers.length > 0 ? savedPlayers : selectedPlayers; 
-      
+
+      const sourcePlayers = savedPlayers.length > 0 ? savedPlayers : selectedPlayers;
+
       sourcePlayers.forEach((player, index) => {
         playerScoresMap.set(player.id, savedScores.map(round => round[index]));
         playerPredictionsMap.set(player.id, predictions.map(round => round[index]));
@@ -684,15 +698,15 @@ export default function NewMatch() {
         newPredictions.push(predRound);
         newResults.push(resRound);
       }
-      
+
       let finalScores = newScores;
 
       // Detect settings changes for Judgement game
       if (gameType === 'judgement') {
         const customChanged = JSON.stringify(savedCustomPoints) !== JSON.stringify(customPoints);
-        const settingsChanged = 
-          savedScoringSystem !== scoringSystem || 
-          savedPenaltyMode !== penaltyMode || 
+        const settingsChanged =
+          savedScoringSystem !== scoringSystem ||
+          savedPenaltyMode !== penaltyMode ||
           (scoringSystem === 'custom' && customChanged);
 
         if (settingsChanged) {
@@ -707,7 +721,7 @@ export default function NewMatch() {
         const extraScores = Array(extraRounds).fill(null).map(() => Array(selectedPlayers.length).fill(0));
         const extraPreds = Array(extraRounds).fill(null).map(() => Array(selectedPlayers.length).fill(null));
         const extraResults = Array(extraRounds).fill(null).map(() => Array(selectedPlayers.length).fill(null));
-        
+
         setScores([...finalScores, ...extraScores]);
         setPredictions([...newPredictions, ...extraPreds]);
         setResults([...newResults, ...extraResults]);
@@ -788,8 +802,8 @@ export default function NewMatch() {
 
     // Wrap around to check for missed cells
     for (let nextCol = 0; nextCol < col; nextCol++) {
-      if (!inactivePlayers.includes(selectedPlayers[nextCol].id) && 
-          (results[row]?.[nextCol] === null || results[row]?.[nextCol] === undefined)) {
+      if (!inactivePlayers.includes(selectedPlayers[nextCol].id) &&
+        (results[row]?.[nextCol] === null || results[row]?.[nextCol] === undefined)) {
         setCurrentCell({ row, col: nextCol, type: "points" });
         setNumpadValue('');
         scrollActiveCellIntoView(row, nextCol, "points");
@@ -798,13 +812,13 @@ export default function NewMatch() {
     }
 
     setCurrentCell(null);
-    
+
     // All results marked for this round - smooth scroll to start of points row
     setTimeout(() => {
       const firstCell = document.querySelector(
         `button[data-row="${row}"][data-col="0"][data-type="points"]`
       ) as HTMLButtonElement | null;
-      
+
       if (firstCell) {
         firstCell.scrollIntoView({
           behavior: 'smooth',
@@ -831,7 +845,7 @@ export default function NewMatch() {
       if (currentCell.type === 'prediction') {
         const val = next === '' ? null : parseInt(next, 10);
         if (next !== '' && isNaN(val as number)) return;
-        
+
         setPredictions(p => {
           const n = [...p];
           n[currentCell.row] = [...(n[currentCell.row] || [])];
@@ -849,7 +863,7 @@ export default function NewMatch() {
     setScores(updated);
   };
 
-    useEffect(() => {
+  useEffect(() => {
     if (gameStarted && gameType === 'judgement' && scrollRef.current) {
       scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -958,7 +972,7 @@ export default function NewMatch() {
       const newCustom = [...customPoints];
       newCustom[col] = val;
       setCustomPoints(newCustom);
-      
+
       if (col < 4) {
         setCurrentCell({ row: 0, col: col + 1, type: 'customPoint' });
         setNumpadValue(customPoints[col + 1] === null ? '' : customPoints[col + 1]!.toString());
@@ -974,7 +988,7 @@ export default function NewMatch() {
 
       if (type === "prediction") {
         if (numpadValue !== '' && isNaN(value as number)) return;
-        
+
         setPredictions((p) => {
           const n = [...p];
           n[row] = [...(n[row] || [])];
@@ -994,8 +1008,8 @@ export default function NewMatch() {
 
         // If we reached the end but some cells are still empty, wrap around to the first empty cell
         for (let nextCol = 0; nextCol < col; nextCol++) {
-          if (!inactivePlayers.includes(selectedPlayers[nextCol].id) && 
-              (predictions[row]?.[nextCol] === null || predictions[row]?.[nextCol] === undefined)) {
+          if (!inactivePlayers.includes(selectedPlayers[nextCol].id) &&
+            (predictions[row]?.[nextCol] === null || predictions[row]?.[nextCol] === undefined)) {
             setCurrentCell({ row, col: nextCol, type: "prediction" });
             setNumpadValue("");
             // scrollActiveCellIntoView handled by useEffect
@@ -1009,7 +1023,7 @@ export default function NewMatch() {
           const firstCell = document.querySelector(
             `button[data-row="${row}"][data-col="0"][data-type="prediction"]`
           ) as HTMLButtonElement | null;
-          
+
           if (firstCell) {
             firstCell.scrollIntoView({
               behavior: 'smooth',
@@ -1041,7 +1055,7 @@ export default function NewMatch() {
 
     let nextRow = row;
     let nextCol = col + 1;
-    
+
     while (nextRow < newScores.length) {
       if (nextCol < numPlayers) {
         if (isActive(nextCol)) {
@@ -1107,7 +1121,7 @@ export default function NewMatch() {
     }));
 
     // Sort by total (descending for highest wins, ascending for lowest wins)
-    playersWithTotals.sort((a, b) => 
+    playersWithTotals.sort((a, b) =>
       winnerRule === 'highest' ? b.total - a.total : a.total - b.total
     );
 
@@ -1135,7 +1149,7 @@ export default function NewMatch() {
   // Setup View
   if (!gameStarted) {
     return (
-      <div 
+      <div
         className="min-h-screen bg-background safe-top safe-bottom"
         style={isEditing ? { overscrollBehavior: 'none', overscrollBehaviorX: 'none' } : {}}
       >
@@ -1179,11 +1193,10 @@ export default function NewMatch() {
                   setGameType('judgement');
                   toast.success('Judgement selected');
                 }}
-                className={`p-4 rounded-2xl border-2 transition-all ${
-                  matchName === 'Judgement'
-                    ? 'border-primary bg-primary/10'
-                    : 'border-primary/40 bg-primary/10 hover:bg-primary/15'
-                }`}
+                className={`p-4 rounded-2xl border-2 transition-all ${matchName === 'Judgement'
+                  ? 'border-primary bg-primary/10'
+                  : 'border-primary/40 bg-primary/10 hover:bg-primary/15'
+                  }`}
               >
                 <div className="text-left">
                   <p className="text-sm font-semibold text-foreground">Judgement</p>
@@ -1209,17 +1222,16 @@ export default function NewMatch() {
                           <div key={s} className="flex flex-col gap-1.5">
                             <button
                               onClick={() => setScoringSystem(s as any)}
-                              className={`p-3 rounded-xl border-2 text-sm font-semibold capitalize transition-all ${
-                                scoringSystem === s ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/30'
-                              }`}
+                              className={`p-3 rounded-xl border-2 text-sm font-semibold capitalize transition-all ${scoringSystem === s ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/30'
+                                }`}
                             >
                               {s === 'dynamic' ? 'Dynamic' : s}
                             </button>
                             <p className="text-[10px] text-muted-foreground text-center leading-tight px-1">
                               {s === 'standard' ? 'Earn 10 pts for 0 bids, or 10x your bid for success.' :
-                               s === 'progressive' ? 'Earn 10 pts for 0 bids, or 10 + your bid for success.' :
-                               s === 'dynamic' ? 'Base 10, 15, 20 pts, then +10 for each extra bid.' :
-                               'Set specific points for 0, 1, 2, 3, and 4 successful bids.'}
+                                s === 'progressive' ? 'Earn 10 pts for 0 bids, or 10 + your bid for success.' :
+                                  s === 'dynamic' ? 'Base 10, 15, 20 pts, then +10 for each extra bid.' :
+                                    'Set specific points for 0, 1, 2, 3, and 4 successful bids.'}
                             </p>
                           </div>
                         ))}
@@ -1289,22 +1301,20 @@ export default function NewMatch() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => setWinnerRule('highest')}
-                className={`p-4 rounded-2xl border-2 transition-all ${
-                  winnerRule === 'highest'
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border hover:border-primary/50'
-                }`}
+                className={`p-4 rounded-2xl border-2 transition-all ${winnerRule === 'highest'
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border hover:border-primary/50'
+                  }`}
               >
                 <Trophy className={`w-8 h-8 mx-auto mb-2 ${winnerRule === 'highest' ? 'text-primary' : 'text-muted-foreground'}`} />
                 <p className="text-sm font-semibold text-foreground">Highest Wins</p>
               </button>
               <button
                 onClick={() => setWinnerRule('lowest')}
-                className={`p-4 rounded-2xl border-2 transition-all ${
-                  winnerRule === 'lowest'
-                    ? 'border-primary bg-primary/10'
-                    : 'border-border hover:border-primary/50'
-                }`}
+                className={`p-4 rounded-2xl border-2 transition-all ${winnerRule === 'lowest'
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border hover:border-primary/50'
+                  }`}
               >
                 <TrendingDown className={`w-8 h-8 mx-auto mb-2 ${winnerRule === 'lowest' ? 'text-primary' : 'text-muted-foreground'}`} />
                 <p className="text-sm font-semibold text-foreground">Lowest Wins</p>
@@ -1341,21 +1351,21 @@ export default function NewMatch() {
             </h2>
 
             {/* Add New Player */}
-  <div className="space-y-4 mb-4">
+            <div className="space-y-4 mb-4">
 
-    {/* Player Name + Add Button */}
-    <div className="flex gap-3 items-end">
+              {/* Player Name + Add Button */}
+              <div className="flex gap-3 items-end">
 
-  <div className="flex-1 relative group">
-    <input
-        type="text"
-        value={newPlayerName}
-        onChange={(e) => setNewPlayerName(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && handleAddNewPlayer()}
-        onFocus={() => setIsNewPlayerNameFocused(true)}
-        onBlur={() => setIsNewPlayerNameFocused(false)}
-        placeholder="Enter player name"
-        className="
+                <div className="flex-1 relative group">
+                  <input
+                    type="text"
+                    value={newPlayerName}
+                    onChange={(e) => setNewPlayerName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddNewPlayer()}
+                    onFocus={() => setIsNewPlayerNameFocused(true)}
+                    onBlur={() => setIsNewPlayerNameFocused(false)}
+                    placeholder="Enter player name"
+                    className="
           w-full px-5 py-3 rounded-2xl
           bg-secondary text-foreground
           placeholder:text-muted-foreground
@@ -1364,12 +1374,12 @@ export default function NewMatch() {
           outline-none transition-all
           font-display text-base shadow-sm
         "
-      />
-  </div>
+                  />
+                </div>
 
-  <button
-    onClick={handleAddNewPlayer}
-    className="
+                <button
+                  onClick={handleAddNewPlayer}
+                  className="
       w-11 h-11 rounded-xl
       flex items-center justify-center
       bg-gradient-primary text-primary-foreground
@@ -1377,40 +1387,40 @@ export default function NewMatch() {
       hover:scale-105 active:scale-95
       transition-transform
     "
-    title="Add Player"
-  >
-    <Plus className="w-5 h-5" />
-  </button>
+                  title="Add Player"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
 
-</div>
+              </div>
 
-  </div>
+            </div>
 
-    {/* Group Selector */}
-  <div className="relative">
+            {/* Group Selector */}
+            <div className="relative">
 
-    <div className="relative group w-72">
-      <input
-        type="text"
-        value={newPlayerGroup}
-        onChange={(e) => {
-          setNewPlayerGroup(e.target.value);
-          setShowGroups(true);
-        }}
-        onFocus={() => {
-          setShowGroups(true);
-          setIsNewPlayerGroupFocused(true);
-        }}
-        onBlur={() => {
-          // Slight timeout to allow onMouseDown to fire on dropdown items
-          setTimeout(() => {
-            setShowGroups(false);
-            setIsNewPlayerGroupFocused(false);
-          }, 200);
-        }}
-        onClick={() => setShowGroups(true)}
-        placeholder="Select or create a group"
-        className="
+              <div className="relative group w-72">
+                <input
+                  type="text"
+                  value={newPlayerGroup}
+                  onChange={(e) => {
+                    setNewPlayerGroup(e.target.value);
+                    setShowGroups(true);
+                  }}
+                  onFocus={() => {
+                    setShowGroups(true);
+                    setIsNewPlayerGroupFocused(true);
+                  }}
+                  onBlur={() => {
+                    // Slight timeout to allow onMouseDown to fire on dropdown items
+                    setTimeout(() => {
+                      setShowGroups(false);
+                      setIsNewPlayerGroupFocused(false);
+                    }, 200);
+                  }}
+                  onClick={() => setShowGroups(true)}
+                  placeholder="Select or create a group"
+                  className="
           w-full px-5 py-3 pr-12 rounded-2xl mb-3
           bg-secondary text-foreground 
           placeholder:text-muted-foreground 
@@ -1422,50 +1432,50 @@ export default function NewMatch() {
           [&::-webkit-calendar-picker-indicator]:hidden
           [&::-webkit-list-button]:hidden
         "
-      />
+                />
 
-      <ChevronDown className={`absolute right-4 top-1/2 -translate-y-[70%] w-5 h-5 text-muted-foreground group-focus-within:text-primary transition-all duration-200 ${showGroups ? 'rotate-180' : ''}`} />
-    </div>
+                <ChevronDown className={`absolute right-4 top-1/2 -translate-y-[70%] w-5 h-5 text-muted-foreground group-focus-within:text-primary transition-all duration-200 ${showGroups ? 'rotate-180' : ''}`} />
+              </div>
 
-    {showGroups && (
-      <div className="absolute z-50 mt-[-8px] w-72 rounded-2xl border border-border bg-background shadow-xl overflow-hidden animate-in fade-in zoom-in duration-200">
-        <div className="max-h-56 overflow-y-auto">
-          {uniqueGroups
-            .filter(group => group.toLowerCase().includes(newPlayerGroup.toLowerCase()))
-            .length > 0 ? (
-            uniqueGroups
-              .filter(group => group.toLowerCase().includes(newPlayerGroup.toLowerCase()))
-              .map(group => (
-                <button
-                  key={group}
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault(); // prevents input blur
-                    setNewPlayerGroup(group);
-                    setShowGroups(false);
-                  }}
-                  className="
+              {showGroups && (
+                <div className="absolute z-50 mt-[-8px] w-72 rounded-2xl border border-border bg-background shadow-xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                  <div className="max-h-56 overflow-y-auto">
+                    {uniqueGroups
+                      .filter(group => group.toLowerCase().includes(newPlayerGroup.toLowerCase()))
+                      .length > 0 ? (
+                      uniqueGroups
+                        .filter(group => group.toLowerCase().includes(newPlayerGroup.toLowerCase()))
+                        .map(group => (
+                          <button
+                            key={group}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault(); // prevents input blur
+                              setNewPlayerGroup(group);
+                              setShowGroups(false);
+                            }}
+                            className="
                     w-full text-left px-4 py-3
                     font-display text-sm
                     text-foreground
                     hover:bg-primary/10
                     transition-colors
                   "
-                >
-                  {group}
-                </button>
-              ))
-            ) : (
-              newPlayerGroup.trim() !== '' && (
-                <div className="px-4 py-3 text-sm text-muted-foreground font-display italic">
-                  Create new group "{newPlayerGroup}"
+                          >
+                            {group}
+                          </button>
+                        ))
+                    ) : (
+                      newPlayerGroup.trim() !== '' && (
+                        <div className="px-4 py-3 text-sm text-muted-foreground font-display italic">
+                          Create new group "{newPlayerGroup}"
+                        </div>
+                      )
+                    )}
+                  </div>
                 </div>
-              )
-            )}
-        </div>
-      </div>
-    )}
-  </div>  
+              )}
+            </div>
 
 
 
@@ -1507,7 +1517,7 @@ export default function NewMatch() {
 
   // Scoreboard View
   return (
-    <div 
+    <div
       className="min-h-screen bg-background safe-top safe-bottom flex flex-col"
       style={{ overscrollBehavior: 'none', overscrollBehaviorX: 'none' }}
     >
@@ -1523,14 +1533,14 @@ export default function NewMatch() {
 
         {!gameFinished && (
           <div className="flex items-center gap-1">
-            <button 
+            <button
               onClick={() => setShowFinishDialog(true)}
               className="p-2 rounded-xl text-white shadow-glow-sm hover:bg-secondary transition-all active:scale-90"
               title="Finish Game"
             >
               <Check className="w-6 h-6 stroke-[2.5]" />
             </button>
-            
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="p-2 rounded-xl hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground">
@@ -1538,71 +1548,71 @@ export default function NewMatch() {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64 p-2 rounded-2xl shadow-xl border-border/50 bg-background/95 backdrop-blur-sm">
-              
-              <DropdownMenuItem
-                onClick={() => setShowNewGameDialog(true)}
-                className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-semibold text-foreground hover:bg-primary/10 focus:bg-primary/10 transition-colors mt-1"
-              >
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/15 text-primary">
-                    <Gamepad2 className="w-5 h-5"/>
-                </div>
-                <div className="flex flex-col">
-                  <span>New Game</span>
-                  <span className="text-[10px] text-muted-foreground font-normal">Start a fresh match</span>
-                </div>
-              </DropdownMenuItem>
-              
-              <DropdownMenuItem
-                onClick={() => {
-                  setIsEditing(true);
-                  setSavedScores(scores);
-                  setSavedPlayers(selectedPlayers);
-                  setSavedScoringSystem(scoringSystem);
-                  setSavedPenaltyMode(penaltyMode);
-                  setSavedCustomPoints([...customPoints]);
-                  setGameStarted(false);
-                }}
-                className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-semibold text-foreground hover:bg-primary/10 focus:bg-primary/10 transition-colors"
-              >
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/15 text-primary">
-                  <Edit className="w-5 h-5" />
-                </div>
-                <div className="flex flex-col">
-                  <span>Edit Game</span>
-                  <span className="text-[10px] text-muted-foreground font-normal">Change players or rounds</span>
-                </div>
-              </DropdownMenuItem>
-              
-              <DropdownMenuItem
-                onClick={() => setShowRestartDialog(true)}
-                className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-semibold text-orange-500 hover:bg-orange-500/10 focus:bg-orange-500/10 transition-colors mt-1"
-              >
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-orange-500/15 text-orange-500">
-                  <RotateCcw className="w-5 h-5" />
-                </div>
-                <div className="flex flex-col">
-                  <span>Restart Game</span>
-                  <span className="text-[10px] text-orange-500/70 font-normal">Reset all scores to zero</span>
-                </div>
-              </DropdownMenuItem>
 
-              <DropdownMenuItem
-                onClick={() => setShowExitDialog(true)}
-                className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-bold text-red-500 hover:bg-red-500/10 focus:bg-red-500/10 transition-colors mt-1"
-              >
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-red-500/15 text-red-500">
-                  <LogOut className="w-5 h-5" />
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-red-600">Exit Game</span>
-                  <span className="text-[10px] text-red-500/70 font-normal">Discard game and go back</span>
-                </div>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
-    </header>
+                <DropdownMenuItem
+                  onClick={() => setShowNewGameDialog(true)}
+                  className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-semibold text-foreground hover:bg-primary/10 focus:bg-primary/10 transition-colors mt-1"
+                >
+                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/15 text-primary">
+                    <Gamepad2 className="w-5 h-5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span>New Game</span>
+                    <span className="text-[10px] text-muted-foreground font-normal">Start a fresh match</span>
+                  </div>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={() => {
+                    setIsEditing(true);
+                    setSavedScores(scores);
+                    setSavedPlayers(selectedPlayers);
+                    setSavedScoringSystem(scoringSystem);
+                    setSavedPenaltyMode(penaltyMode);
+                    setSavedCustomPoints([...customPoints]);
+                    setGameStarted(false);
+                  }}
+                  className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-semibold text-foreground hover:bg-primary/10 focus:bg-primary/10 transition-colors"
+                >
+                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/15 text-primary">
+                    <Edit className="w-5 h-5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span>Edit Game</span>
+                    <span className="text-[10px] text-muted-foreground font-normal">Change players or rounds</span>
+                  </div>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={() => setShowRestartDialog(true)}
+                  className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-semibold text-orange-500 hover:bg-orange-500/10 focus:bg-orange-500/10 transition-colors mt-1"
+                >
+                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-orange-500/15 text-orange-500">
+                    <RotateCcw className="w-5 h-5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span>Restart Game</span>
+                    <span className="text-[10px] text-orange-500/70 font-normal">Reset all scores to zero</span>
+                  </div>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={() => setShowExitDialog(true)}
+                  className="flex items-center gap-3 p-3 rounded-xl cursor-pointer font-bold text-red-500 hover:bg-red-500/10 focus:bg-red-500/10 transition-colors mt-1"
+                >
+                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-red-500/15 text-red-500">
+                    <LogOut className="w-5 h-5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-red-600">Exit Game</span>
+                    <span className="text-[10px] text-red-500/70 font-normal">Discard game and go back</span>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
+      </header>
 
       {/* Restart Game Dialog */}
       <AlertDialog open={showRestartDialog} onOpenChange={setShowRestartDialog}>
@@ -1620,7 +1630,7 @@ export default function NewMatch() {
             <AlertDialogCancel className="flex-1 h-12 rounded-2xl border-2 font-bold text-base hover:bg-secondary mt-0">
               Cancel
             </AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={() => {
                 setScores(Array(numRounds).fill(null).map(() => Array(selectedPlayers.length).fill(0)));
                 setGameFinished(false);
@@ -1650,7 +1660,7 @@ export default function NewMatch() {
             <AlertDialogCancel className="flex-1 h-12 rounded-2xl border-2 font-bold text-base hover:bg-secondary mt-0">
               Cancel
             </AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={() => {
                 setMatchName('');
                 setSelectedPlayers([]);
@@ -1688,7 +1698,7 @@ export default function NewMatch() {
             <AlertDialogCancel className="flex-1 h-12 rounded-2xl border-2 font-bold text-base hover:bg-secondary mt-0">
               Stay
             </AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={() => {
                 navigate('/');
                 clearDraft();
@@ -1717,7 +1727,7 @@ export default function NewMatch() {
             <AlertDialogCancel className="flex-1 h-12 rounded-2xl border-2 font-bold hover:bg-secondary mt-0">
               Keep Playing
             </AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={finishGame}
               className="flex-1 h-12 rounded-2xl bg-gradient-primary text-primary-foreground font-bold border-none shadow-glow active:scale-[0.98] transition-all mt-0"
             >
@@ -1729,9 +1739,9 @@ export default function NewMatch() {
 
       <main className="flex-1 p-6 page-enter space-y-6 pb-6">
         {/* Score Table */}
-        <div className="overflow-auto -mx-6 px-0 pb-0 mobile-hide-scrollbar relative max-h-[70vh] bg-background" 
-             ref={scrollRef}
-             style={{ scrollBehavior: 'smooth' }}>
+        <div className="overflow-auto -mx-6 px-0 pb-0 mobile-hide-scrollbar relative max-h-[70vh] bg-background"
+          ref={scrollRef}
+          style={{ scrollBehavior: 'smooth' }}>
           <table className="w-full border-separate min-w-max no-border-spacing">
             <thead className="sticky top-0 z-50 bg-background shadow-none">
               <tr>
@@ -1741,18 +1751,18 @@ export default function NewMatch() {
                     key={player.id}
                     className={`p-2 text-center min-w-[80px] sticky top-0 z-40 bg-background border-b border-border ${currentCell?.col === i ? 'text-primary' : 'text-foreground'}`}
                   >
-                    <div className="flex flex-col items-center gap-1 no-select">  
+                    <div className="flex flex-col items-center gap-1 no-select">
                       {i === winnerIndex && gameFinished && <Crown className="w-4 h-4 crown-bounce text-yellow-500" />}
                       <PlayerAvatar
-                        className= "no-select"
+                        className="no-select"
                         name={player.name}
                         size="sm"
                         isWinner={i === winnerIndex && gameFinished}
                         onMouseDown={() => {
-                            if (longPressTimerRef.current) {
-                              window.clearTimeout(longPressTimerRef.current);
-                              longPressTimerRef.current = null;
-                            }
+                          if (longPressTimerRef.current) {
+                            window.clearTimeout(longPressTimerRef.current);
+                            longPressTimerRef.current = null;
+                          }
                           // longPressTimerRef.current = window.setTimeout(() => toggleInactive(player.id), 350);
                         }}
                         onMouseUp={() => {
@@ -1798,7 +1808,7 @@ export default function NewMatch() {
                                 longPressTimerRef.current = null;
                               }
                             }}
-                            
+
                             onContextMenu={(e) => {
                               e.preventDefault();
                               setMenuTarget(player.id);
@@ -1830,140 +1840,136 @@ export default function NewMatch() {
                 )}
               </tr>
             </thead>
-              <tbody>
-                {scores.map((round, rowIndex) => (
-                  gameType === 'judgement' ? (
-                    <Fragment key={rowIndex}>
-                      <tr className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''} bg-secondary/50`}>
-                        <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">R{rowIndex + 1}</td>
-                        {round.map((_, colIndex) => (
-                          <td key={colIndex} className="p-1">
-                            <button
-                              onClick={() => !gameFinished && openCell(rowIndex, colIndex)}
-                              disabled={gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) || results[rowIndex]?.[colIndex] !== null}
-                              className={`w-full h-12 rounded-xl font-display font-bold text-lg transition-all duration-200 ${
-                                results[rowIndex]?.[colIndex] === true ? 'bg-green-600/10' : 
-                                results[rowIndex]?.[colIndex] === false ? 'bg-red-600/10' : 
-                                'bg-secondary'
-                              } text-foreground hover:bg-secondary/80 flex items-center justify-center gap-1 ${gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) ? 'cursor-default opacity-50' : ''} ${currentCell?.col === colIndex && currentCell?.row === rowIndex && currentCell?.type === 'prediction' ? 'ring-2 ring-primary/50 border-transparent scale-105' : 'scale-100'}`}
-                              data-row={rowIndex}
-                              data-col={colIndex}
-                              data-type="prediction"
-                            >
-                              {currentCell?.row === rowIndex && currentCell?.col === colIndex && results[rowIndex]?.[colIndex] === null
-                                ? (numpadValue === '' ? (predictions[rowIndex]?.[colIndex] ?? '-') : numpadValue)
-                                : (predictions[rowIndex]?.[colIndex] ?? '-')}
-                              {results[rowIndex]?.[colIndex] === true && <Check className="w-4 h-4 text-green-600" />}
-                              {results[rowIndex]?.[colIndex] === false && <X className="w-4 h-4 text-red-600" />}
-                            </button>
-                          </td>
-                        ))}
-                        {gameType === 'judgement' && (
-                          <td className="p-2 text-center sticky right-0 z-30 bg-background shadow-lg border-l-2 border-border font-bold">
-                            <div className="flex flex-col items-center">
-                              <span className="text-foreground">
-                                {predictions[rowIndex]?.reduce((sum, p) => sum + (p || 0), 0)}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground font-normal leading-none">
-                                ({predictions[rowIndex]?.filter((p) => p !== null && p !== undefined).length || 0}/{selectedPlayers.length})
-                              </span>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                      <tr className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''} ${
-                        selectedPlayers.every((p, idx) => inactivePlayers.includes(p.id) || (predictions[rowIndex]?.[idx] !== null && predictions[rowIndex]?.[idx] !== undefined))
-                          ? ""
-                          : "opacity-60"
-                      } transition-all duration-300`}>
-                        <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">R{rowIndex + 1} Pts</td>
-                        {round.map((pts, colIndex) => (
-                          <td key={colIndex} className="p-1">
-                            <button
-                              onClick={() => {
-                                if (!gameFinished && predictions[rowIndex]?.[colIndex] !== null) {
-                                  // Check if all active players in this round have entered predictions
-                                  const allPredictionsEntered = selectedPlayers.every((p, idx) => 
-                                    inactivePlayers.includes(p.id) || (predictions[rowIndex]?.[idx] !== null && predictions[rowIndex]?.[idx] !== undefined)
-                                  );
-                                  
-                                  if (allPredictionsEntered) {
-                                    openResultMarking(rowIndex, colIndex);
-                                  } else {
-                                    toast.error("Finish all bids first!", {
-                                      description: "All players must enter their predictions before results can be marked.",
-                                      duration: 2000,
-                                    });
-                                  }
-                                }
-                              }}
-                              disabled={gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) || predictions[rowIndex]?.[colIndex] === null}
-                              className={`w-full h-12 rounded-xl font-bold transition-all duration-200 ${
-                                currentCell?.row === rowIndex && currentCell?.col === colIndex && currentCell?.type === 'points'
-                                  ? "ring-2 ring-primary/50 scale-105"
-                                  : "scale-100"
-                              } ${
-                                results[rowIndex]?.[colIndex] === true ? "bg-green-600/10" : 
-                                results[rowIndex]?.[colIndex] === false ? "bg-red-600/10" : 
-                                "bg-secondary"
-                              } ${!selectedPlayers.every((p, idx) => inactivePlayers.includes(p.id) || (predictions[rowIndex]?.[idx] !== null && predictions[rowIndex]?.[idx] !== undefined)) ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-secondary/80"} ${pts > 0 ? "text-green-600 font-bold" : pts < 0 ? "text-red-600 font-bold" : "text-muted-foreground"}`}
-                              data-row={rowIndex}
-                              data-col={colIndex}
-                              data-type="points"
-                            >
-                              {results[rowIndex]?.[colIndex] !== null && results[rowIndex]?.[colIndex] !== undefined ? (pts > 0 ? "+" : "") + pts : "-"}
-                            </button>
-                          </td>
-                        ))}
-                        {gameType === 'judgement' && (
-                          <td className="p-2 text-center sticky right-0 z-30 bg-background shadow-lg border-l-2 border-border font-bold">
-                            {results[rowIndex]?.some((r) => r !== null && r !== undefined) && (
-                              <div className="flex flex-col items-center">
-                                <span className="text-green-600">{results[rowIndex]?.filter(Boolean).length || 0}</span>
-                                <span className="text-[10px] text-muted-foreground font-normal leading-none">correct</span>
-                              </div>
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                    </Fragment>
-                  ) : (
-                    <tr key={rowIndex} className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''}`}>
+            <tbody>
+              {scores.map((round, rowIndex) => (
+                gameType === 'judgement' ? (
+                  <Fragment key={rowIndex}>
+                    <tr className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''} bg-secondary/50`}>
                       <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">R{rowIndex + 1}</td>
-                      {round.map((score, colIndex) => (
+                      {round.map((_, colIndex) => (
                         <td key={colIndex} className="p-1">
                           <button
-                            onClick={() => !gameFinished && openNumpad(rowIndex, colIndex)}
-                            disabled={gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id)}
-                            className={`w-full h-12 rounded-xl font-display font-bold text-lg transition-all duration-200 bg-secondary text-foreground hover:bg-secondary/80 ${gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) ? 'cursor-default opacity-50' : ''} ${currentCell?.col === colIndex && currentCell?.row === rowIndex ? 'ring-2 ring-primary/50 scale-105' : 'scale-100'}`}
+                            onClick={() => !gameFinished && openCell(rowIndex, colIndex)}
+                            disabled={gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) || results[rowIndex]?.[colIndex] !== null}
+                            className={`w-full h-12 rounded-xl font-display font-bold text-lg transition-all duration-200 ${results[rowIndex]?.[colIndex] === true ? 'bg-green-600/10' :
+                              results[rowIndex]?.[colIndex] === false ? 'bg-red-600/10' :
+                                'bg-secondary'
+                              } text-foreground hover:bg-secondary/80 flex items-center justify-center gap-1 ${gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) ? 'cursor-default opacity-50' : ''} ${currentCell?.col === colIndex && currentCell?.row === rowIndex && currentCell?.type === 'prediction' ? 'ring-2 ring-primary/50 border-transparent scale-105' : 'scale-100'}`}
                             data-row={rowIndex}
                             data-col={colIndex}
-                            data-type="score"
+                            data-type="prediction"
                           >
-                            {currentCell?.row === rowIndex && currentCell?.col === colIndex
-                              ? (numpadValue === '' ? score : numpadValue)
-                              : score}
+                            {currentCell?.row === rowIndex && currentCell?.col === colIndex && results[rowIndex]?.[colIndex] === null
+                              ? (numpadValue === '' ? (predictions[rowIndex]?.[colIndex] ?? '-') : numpadValue)
+                              : (predictions[rowIndex]?.[colIndex] ?? '-')}
+                            {results[rowIndex]?.[colIndex] === true && <Check className="w-4 h-4 text-green-600" />}
+                            {results[rowIndex]?.[colIndex] === false && <X className="w-4 h-4 text-red-600" />}
                           </button>
                         </td>
                       ))}
+                      {gameType === 'judgement' && (
+                        <td className="p-2 text-center sticky right-0 z-30 bg-background shadow-lg border-l-2 border-border font-bold">
+                          <div className="flex flex-col items-center">
+                            <span className="text-foreground">
+                              {predictions[rowIndex]?.reduce((sum, p) => sum + (p || 0), 0)}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground font-normal leading-none">
+                              ({predictions[rowIndex]?.filter((p) => p !== null && p !== undefined).length || 0}/{selectedPlayers.length})
+                            </span>
+                          </div>
+                        </td>
+                      )}
                     </tr>
-                  )
-                ))}
-                {/* Add Round Placeholder Row */}
-                {!gameFinished && (
-                  <tr className="opacity-60">
-                    <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">
-                      <button
-                        onClick={() => {
-                          setScores(prev => [...prev, Array(selectedPlayers.length).fill(0)]);
-                          if (gameType === 'judgement') {
-                            setPredictions(prev => [...prev, Array(selectedPlayers.length).fill(null)]);
-                            setResults(prev => [...prev, Array(selectedPlayers.length).fill(null)]);
-                          }
-                        }}
-                        className="inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md border border-border bg-secondary hover:bg-secondary/80 text-foreground"
-                      >
-                        R{scores.length + 1} +
+                    <tr className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''} ${selectedPlayers.every((p, idx) => inactivePlayers.includes(p.id) || (predictions[rowIndex]?.[idx] !== null && predictions[rowIndex]?.[idx] !== undefined))
+                      ? ""
+                      : "opacity-60"
+                      } transition-all duration-300`}>
+                      <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">R{rowIndex + 1} Pts</td>
+                      {round.map((pts, colIndex) => (
+                        <td key={colIndex} className="p-1">
+                          <button
+                            onClick={() => {
+                              if (!gameFinished && predictions[rowIndex]?.[colIndex] !== null) {
+                                // Check if all active players in this round have entered predictions
+                                const allPredictionsEntered = selectedPlayers.every((p, idx) =>
+                                  inactivePlayers.includes(p.id) || (predictions[rowIndex]?.[idx] !== null && predictions[rowIndex]?.[idx] !== undefined)
+                                );
+
+                                if (allPredictionsEntered) {
+                                  openResultMarking(rowIndex, colIndex);
+                                } else {
+                                  toast.error("Finish all bids first!", {
+                                    description: "All players must enter their predictions before results can be marked.",
+                                    duration: 2000,
+                                  });
+                                }
+                              }
+                            }}
+                            disabled={gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) || predictions[rowIndex]?.[colIndex] === null}
+                            className={`w-full h-12 rounded-xl font-bold transition-all duration-200 ${currentCell?.row === rowIndex && currentCell?.col === colIndex && currentCell?.type === 'points'
+                              ? "ring-2 ring-primary/50 scale-105"
+                              : "scale-100"
+                              } ${results[rowIndex]?.[colIndex] === true ? "bg-green-600/10" :
+                                results[rowIndex]?.[colIndex] === false ? "bg-red-600/10" :
+                                  "bg-secondary"
+                              } ${!selectedPlayers.every((p, idx) => inactivePlayers.includes(p.id) || (predictions[rowIndex]?.[idx] !== null && predictions[rowIndex]?.[idx] !== undefined)) ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-secondary/80"} ${pts > 0 ? "text-green-600 font-bold" : pts < 0 ? "text-red-600 font-bold" : "text-muted-foreground"}`}
+                            data-row={rowIndex}
+                            data-col={colIndex}
+                            data-type="points"
+                          >
+                            {results[rowIndex]?.[colIndex] !== null && results[rowIndex]?.[colIndex] !== undefined ? (pts > 0 ? "+" : "") + pts : "-"}
+                          </button>
+                        </td>
+                      ))}
+                      {gameType === 'judgement' && (
+                        <td className="p-2 text-center sticky right-0 z-30 bg-background shadow-lg border-l-2 border-border font-bold">
+                          {results[rowIndex]?.some((r) => r !== null && r !== undefined) && (
+                            <div className="flex flex-col items-center">
+                              <span className="text-green-600">{results[rowIndex]?.filter(Boolean).length || 0}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal leading-none">correct</span>
+                            </div>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  </Fragment>
+                ) : (
+                  <tr key={rowIndex} className={`${currentCell?.row === rowIndex ? 'bg-primary/5' : ''}`}>
+                    <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">R{rowIndex + 1}</td>
+                    {round.map((score, colIndex) => (
+                      <td key={colIndex} className="p-1">
+                        <button
+                          onClick={() => !gameFinished && openNumpad(rowIndex, colIndex)}
+                          disabled={gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id)}
+                          className={`w-full h-12 rounded-xl font-display font-bold text-lg transition-all duration-200 bg-secondary text-foreground hover:bg-secondary/80 ${gameFinished || inactivePlayers.includes(selectedPlayers[colIndex].id) ? 'cursor-default opacity-50' : ''} ${currentCell?.col === colIndex && currentCell?.row === rowIndex ? 'ring-2 ring-primary/50 scale-105' : 'scale-100'}`}
+                          data-row={rowIndex}
+                          data-col={colIndex}
+                          data-type="score"
+                        >
+                          {currentCell?.row === rowIndex && currentCell?.col === colIndex
+                            ? (numpadValue === '' ? score : numpadValue)
+                            : score}
+                        </button>
+                      </td>
+                    ))}
+                  </tr>
+                )
+              ))}
+              {/* Add Round Placeholder Row */}
+              {!gameFinished && (
+                <tr className="opacity-60">
+                  <td className="p-2 text-sm text-muted-foreground text-center sticky left-0 z-30 bg-background border-r-2 border-border shadow-lg">
+                    <button
+                      onClick={() => {
+                        setScores(prev => [...prev, Array(selectedPlayers.length).fill(0)]);
+                        if (gameType === 'judgement') {
+                          setPredictions(prev => [...prev, Array(selectedPlayers.length).fill(null)]);
+                          setResults(prev => [...prev, Array(selectedPlayers.length).fill(null)]);
+                        }
+                      }}
+                      className="inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md border border-border bg-secondary hover:bg-secondary/80 text-foreground"
+                    >
+                      R{scores.length + 1} +
                     </button>
                   </td>
                   {selectedPlayers.map((_, i) => (
@@ -1978,23 +1984,23 @@ export default function NewMatch() {
                   ))}
                 </tr>
               )}
-              </tbody>
-              <tfoot className="sticky bottom-0 z-50 bg-background shadow-none">
-                <tr className="border-t-2 border-border">
-                  <td className="p-2 text-sm font-bold text-foreground text-center sticky left-0 z-50 bg-background border-r-2 border-border shadow-lg">Total</td>
-                  {totals.map((total, i) => (
-                    <td
-                      key={i}
-                      className={`p-2 text-center font-display text-xl font-bold ${total === extremeTotal ? 'text-red-600' : 'text-foreground'}`}
-                    >
+            </tbody>
+            <tfoot className="sticky bottom-0 z-50 bg-background shadow-none">
+              <tr className="border-t-2 border-border">
+                <td className="p-2 text-sm font-bold text-foreground text-center sticky left-0 z-50 bg-background border-r-2 border-border shadow-lg">Total</td>
+                {totals.map((total, i) => (
+                  <td
+                    key={i}
+                    className={`p-2 text-center font-display text-xl font-bold ${total === extremeTotal ? 'text-red-600' : 'text-foreground'}`}
+                  >
                     {total}
                   </td>
                 ))}
                 {gameType === 'judgement' && (
-                    <td className="p-2 text-center sticky right-0 z-50 bg-background shadow-lg border-l-2 border-border font-bold text-foreground">
-                      {totals.reduce((a, b) => a + b, 0)}
-                    </td>
-                  )}
+                  <td className="p-2 text-center sticky right-0 z-50 bg-background shadow-lg border-l-2 border-border font-bold text-foreground">
+                    {totals.reduce((a, b) => a + b, 0)}
+                  </td>
+                )}
               </tr>
             </tfoot>
           </table>
@@ -2012,15 +2018,14 @@ export default function NewMatch() {
               {rankings.map(({ player, total, rank }) => (
                 <div
                   key={player.id}
-                  className={`flex items-center gap-3 p-4 rounded-2xl transition-all border-2 shadow ${
-                    rank === 1
-                      ? 'bg-gradient-to-br from-yellow-200/40 via-amber-100/25 to-yellow-100/20 border-[hsl(45,100%,55%)] shadow-[0_4px_12px_-8px_hsl(45,100%,55%/0.25)]'
+                  className={`flex items-center gap-3 p-4 rounded-2xl transition-all border-2 shadow ${rank === 1
+                    ? 'bg-gradient-to-br from-yellow-200/40 via-amber-100/25 to-yellow-100/20 border-[hsl(45,100%,55%)] shadow-[0_4px_12px_-8px_hsl(45,100%,55%/0.25)]'
                     : rank === 2
                       ? 'bg-gradient-to-br from-zinc-200/40 via-zinc-100/25 to-white/20 border-[hsl(0,0%,70%)] shadow-[0_4px_12px_-8px_hsl(0,0%,70%/0.2)]'
-                    : rank === 3
-                      ? 'bg-gradient-to-br from-amber-200/30 via-orange-200/20 to-amber-100/15 border-[hsl(30,70%,45%)] shadow-[0_4px_12px_-8px_hsl(30,70%,45%/0.2)]'
-                    : 'bg-secondary/50 border-border'
-                  }`}
+                      : rank === 3
+                        ? 'bg-gradient-to-br from-amber-200/30 via-orange-200/20 to-amber-100/15 border-[hsl(30,70%,45%)] shadow-[0_4px_12px_-8px_hsl(30,70%,45%/0.2)]'
+                        : 'bg-secondary/50 border-border'
+                    }`}
                 >
                   {getRankBadge(rank)}
                   <PlayerAvatar name={player.name} size="sm" isWinner={rank === 1} />
