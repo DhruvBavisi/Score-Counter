@@ -217,7 +217,12 @@ export default function NewMatch() {
       startY: number;
       currentY: number;
       itemHeight: number;
+      startScrollTop: number;
     } | null>(null);
+
+    // Keep a ref mirror of draggingState so auto-scroll loop can read fresh values
+    const draggingStateRef = useRef(draggingState);
+    draggingStateRef.current = draggingState;
 
     // Stop auto-scroll loop
     const stopAutoScroll = () => {
@@ -255,6 +260,31 @@ export default function NewMatch() {
 
         if (speed !== 0) {
           container.scrollTop += speed;
+
+          // After scrolling, recalculate reorder and update draggingState
+          // so the card stays synced with the cursor during auto-scroll
+          const ds = draggingStateRef.current;
+          if (ds) {
+            const scrollDelta = container.scrollTop - ds.startScrollTop;
+            const effectiveY = pointerY + scrollDelta;
+            const diff = effectiveY - (ds.startY + 0); // startY is viewport-relative at drag start
+            const slots = Math.round(diff / ds.itemHeight);
+            const targetIndex = Math.max(0, Math.min(tempSelected.length - 1, ds.startIndex + slots));
+
+            setTempSelected(prev => {
+              const currentIndex = prev.indexOf(ds.id);
+              if (targetIndex !== currentIndex) {
+                const newTemp = [...prev];
+                const [removed] = newTemp.splice(currentIndex, 1);
+                newTemp.splice(targetIndex, 0, removed);
+                return newTemp;
+              }
+              return prev;
+            });
+
+            // Force re-render so getDragOffset picks up new scroll position
+            setDraggingState(prev => prev ? ({ ...prev }) : null);
+          }
         }
 
         autoScrollRafRef.current = requestAnimationFrame(scroll);
@@ -273,12 +303,16 @@ export default function NewMatch() {
       const rect = el.getBoundingClientRect();
       pointerYRef.current = e.clientY;
 
+      const container = listScrollRef.current;
+      const startScrollTop = container ? container.scrollTop : 0;
+
       setDraggingState({
         id,
         startIndex: index,
         startY: e.clientY,
         currentY: e.clientY,
-        itemHeight: rect.height + 8
+        itemHeight: rect.height + 8,
+        startScrollTop,
       });
     };
 
@@ -304,7 +338,10 @@ export default function NewMatch() {
         }
       }
 
-      const diff = newY - draggingState.startY;
+      // Account for scroll delta in slot calculation
+      const scrollDelta = container ? container.scrollTop - draggingState.startScrollTop : 0;
+      const effectiveY = newY + scrollDelta;
+      const diff = effectiveY - draggingState.startY;
       const slots = Math.round(diff / draggingState.itemHeight);
       const currentIndex = tempSelected.indexOf(draggingState.id);
       const targetIndex = Math.max(0, Math.min(tempSelected.length - 1, draggingState.startIndex + slots));
@@ -335,7 +372,11 @@ export default function NewMatch() {
       if (!draggingState || draggingState.id !== id) return 0;
       const currentIndex = tempSelected.indexOf(id);
       const indexDiff = currentIndex - draggingState.startIndex;
-      const rawOffset = (draggingState.currentY - draggingState.startY) - (indexDiff * draggingState.itemHeight);
+
+      // Factor in scroll delta so the card stays attached to the cursor during auto-scroll
+      const container = listScrollRef.current;
+      const scrollDelta = container ? container.scrollTop - draggingState.startScrollTop : 0;
+      const rawOffset = (draggingState.currentY - draggingState.startY) + scrollDelta - (indexDiff * draggingState.itemHeight);
 
       // Clamp so the card can't float above position 0 or below the last position
       const minOffset = -currentIndex * draggingState.itemHeight;
